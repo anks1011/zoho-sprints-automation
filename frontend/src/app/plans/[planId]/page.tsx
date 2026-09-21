@@ -83,29 +83,38 @@ function parseNumberedList(text: string | string[] | undefined | null, fallback 
   return cleaned.length > 0 ? cleaned : [fallback];
 }
 
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 function buildTaskDescription(task: GeneratedTask): string {
-  if (task.description && task.description.startsWith("Objective:") && !task.description.includes("## Objective")) {
+  if (task.description && task.description.includes("<p><strong>Objective:</strong>") && !task.description.includes("Testing Considerations")) {
     return task.description;
   }
-  const obj = cleanPlainText(task.objective);
-  const scope = formatNumberedList(task.scope, "1. Implement requirements according to story specification.");
-  const exp = formatNumberedList(task.expected_behavior, "1. System behaves as defined in objective.");
+  const obj = escapeHtml(cleanPlainText(task.objective));
+  const scopeItems = parseNumberedList(task.scope, "Implement requirements according to story specification.");
+  const scopeLi = scopeItems.map((item) => `  <li>${escapeHtml(item)}</li>`).join("\n");
+
+  const expItems = parseNumberedList(task.expected_behavior, "System behaves as defined in objective.");
+  const expLi = expItems.map((item) => `  <li>${escapeHtml(item)}</li>`).join("\n");
 
   const depsRaw = cleanPlainText(task.dependencies);
   const cleanDepsCheck = depsRaw.replace(/^(?:[-*+•]|\d+[.)])\s*/, "").trim();
-  let depsSection = "Dependencies:\nNone identified.";
+  let depsSection = "<p><strong>Dependencies:</strong><br>\nNone identified.</p>";
   if (depsRaw && cleanDepsCheck.toLowerCase().replace(/\.$/, "") !== "none" && cleanDepsCheck.toLowerCase().replace(/\.$/, "") !== "none identified") {
-    const depsFormatted = formatNumberedList(task.dependencies, "None identified.");
-    if (depsFormatted === "None identified.") {
-      depsSection = "Dependencies:\nNone identified.";
-    } else if (depsFormatted.startsWith("1. ")) {
-      depsSection = `Dependencies:\n\n${depsFormatted}`;
-    } else {
-      depsSection = `Dependencies:\n${depsFormatted}`;
+    const depsItems = parseNumberedList(task.dependencies, "None identified.");
+    if (depsItems.length > 0 && !(depsItems.length === 1 && depsItems[0].toLowerCase().replace(/\.$/, "") === "none identified")) {
+      const depsLi = depsItems.map((item) => `  <li>${escapeHtml(item)}</li>`).join("\n");
+      depsSection = `<p><strong>Dependencies:</strong></p>\n<ol>\n${depsLi}\n</ol>`;
     }
   }
 
-  return `Objective:\n${obj}\n\nScope:\n\n${scope}\n\nExpected Behavior:\n\n${exp}\n\n${depsSection}`;
+  return `<p><strong>Objective:</strong><br>\n${obj}</p>\n\n<p><strong>Scope:</strong></p>\n<ol>\n${scopeLi}\n</ol>\n\n<p><strong>Expected Behavior:</strong></p>\n<ol>\n${expLi}\n</ol>\n\n${depsSection}`;
 }
 
 export default function PlanReviewPage({ params }: PageProps) {

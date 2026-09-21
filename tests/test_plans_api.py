@@ -232,28 +232,28 @@ def test_update_plan_success(sample_plan: GeneratedTaskPlan) -> None:
         assert data["updated_at"] is not None
         mock_plan_store.save_plan.assert_called_once()
 
-        # Verify Zoho-compatible 6-section plain-text format with numbered lists is preserved on edit and save
+        # Verify Zoho-compatible HTML format is preserved on edit and save
         desc = data["tasks"][0]["description"]
         assert "##" not in desc
         assert "**" not in desc
         assert not any(line.strip().startswith("- ") for line in desc.splitlines())
 
-        assert "Objective:" in desc
-        assert "Scope:" in desc
-        assert "Expected Behavior:" in desc
-        assert "Dependencies:" in desc
+        assert "<p><strong>Objective:</strong>" in desc
+        assert "<p><strong>Scope:</strong>" in desc
+        assert "<p><strong>Expected Behavior:</strong>" in desc
+        assert "<p><strong>Dependencies:</strong>" in desc
         assert "Testing Considerations" not in desc
         assert "Acceptance Criteria" not in desc
 
-        obj_idx = desc.index("Objective:")
-        scope_idx = desc.index("Scope:")
-        exp_idx = desc.index("Expected Behavior:")
-        deps_idx = desc.index("Dependencies:")
+        obj_idx = desc.index("<strong>Objective:</strong>")
+        scope_idx = desc.index("<strong>Scope:</strong>")
+        exp_idx = desc.index("<strong>Expected Behavior:</strong>")
+        deps_idx = desc.index("<strong>Dependencies:</strong>")
         assert obj_idx < scope_idx < exp_idx < deps_idx
 
-        assert "1. Revised scope text." in desc
-        assert "1. Revised expected behavior." in desc
-        assert "1. BE - 02 Layout validation" in desc
+        assert "<li>Revised scope text.</li>" in desc
+        assert "<li>Revised expected behavior.</li>" in desc
+        assert "<li>BE - 02 Layout validation</li>" in desc
     finally:
         app.dependency_overrides.clear()
 

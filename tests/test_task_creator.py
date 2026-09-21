@@ -125,3 +125,64 @@ def test_resume_skips_already_created(tmp_path: Path, mock_plan: GeneratedTaskPl
     assert mock_api.create_subitem.call_count == 1
     args, kwargs = mock_api.create_subitem.call_args
     assert kwargs["name"] == mock_plan.tasks[1].title
+
+
+def test_update_descriptions_skips_already_formatted(tmp_path: Path, mock_plan: GeneratedTaskPlan) -> None:
+    """Verify that tasks whose live descriptions are already in Zoho-compatible HTML are skipped."""
+    from src.services.plan_store import PlanStore
+
+    settings = Settings(
+        runtime_dir=tmp_path / ".runtime",
+    )
+    tracker = ExecutionTracker(settings)
+    plan_store = PlanStore(settings)
+    plan_store.save_plan(mock_plan)
+
+    record = tracker.create_execution(mock_plan)
+    record.tasks[0].status = "CREATED"
+    record.tasks[0].zoho_task_id = "ZOHO-HTML-TASK-1"
+    tracker.save_execution(record)
+
+    # Already valid HTML description
+    existing_html = mock_plan.tasks[0].format_description()
+
+    mock_api = MagicMock()
+    mock_api.client.request.return_value = {
+        "items": [{"desc": existing_html, "id": "ZOHO-HTML-TASK-1"}]
+    }
+
+    creator = TaskCreator(settings=settings, sprints_api=mock_api, tracker=tracker)
+    result = creator.update_all_executed_tasks_descriptions(plan_store=plan_store, dry_run=False)
+
+    assert result["skipped_count"] == 1
+    assert result["updated_count"] == 0
+    # No POST request should be made because it is already formatted
+    post_calls = [c for c in mock_api.client.request.call_args_list if c.args and c.args[0] == "POST"]
+    assert len(post_calls) == 0
+
+
+def test_formatter_used_by_new_task_creation(tmp_path: Path, mock_plan: GeneratedTaskPlan) -> None:
+    """Verify that newly created tasks use the Zoho-compatible HTML formatter."""
+    settings = Settings(
+        zoho_default_item_type_id="TYPE_TASK",
+        zoho_default_priority_id="PRIO_NORMAL",
+        runtime_dir=tmp_path / ".runtime",
+    )
+    mock_api = MagicMock(spec=SprintsAPI)
+    mock_api.create_subitem.side_effect = lambda **kwargs: Subitem(id="NEW-SUB-1", name=kwargs["name"])
+
+    creator = TaskCreator(settings=settings, sprints_api=mock_api)
+    result = creator.execute_plan(mock_plan, dry_run=False)
+
+    assert result.created_tasks == len(mock_plan.tasks)
+    for call in mock_api.create_subitem.call_args_list:
+        desc = call.kwargs["description"]
+        assert "<p><strong>Objective:</strong>" in desc
+        assert "<p><strong>Scope:</strong></p>" in desc
+        assert "<ol>" in desc
+        assert "<li>" in desc
+        assert "##" not in desc
+        assert "**" not in desc
+        assert "Testing Considerations" not in desc
+        assert "Acceptance Criteria" not in desc
+

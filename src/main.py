@@ -7,6 +7,7 @@ from typing import Optional
 
 import typer
 from rich.console import Console
+from rich.panel import Panel
 from rich.prompt import Prompt
 from rich.table import Table
 
@@ -479,43 +480,91 @@ def resume_command(
 
 @app.command("update-tasks")
 def update_tasks_command(
+    preview: bool = typer.Option(
+        False, "--preview", help="Show exact final descriptions that will be sent without modifying tasks"
+    ),
     dry_run: bool = typer.Option(
-        False, "--dry-run", help="Preview description updates without sending API requests"
+        False, "--dry-run", help="Simulate update without sending API requests"
+    ),
+    yes: bool = typer.Option(
+        False, "--yes", "-y", help="Confirm update without interactive prompt"
     ),
 ) -> None:
-    """Fetch all tasks created by this application from executions/plans and reformat their descriptions, removing Testing Considerations and Acceptance Criteria."""
+    """Fetch all tasks created by this application from executions/plans and reformat their descriptions into clean Zoho-compatible HTML, removing Testing Considerations and Acceptance Criteria."""
     settings = get_settings()
     creator = TaskCreator(settings=settings)
-    mode_str = "[yellow](DRY RUN)[/yellow]" if dry_run else "[green](LIVE API UPDATE)[/green]"
-    console.print(
-        f"[bold cyan]Scanning all executions and updating task descriptions {mode_str}...[/bold cyan]"
-    )
-    result = creator.update_all_executed_tasks_descriptions(dry_run=dry_run)
 
-    table = Table(title=f"Task Description Reformatting Summary {mode_str}")
+    if preview or dry_run:
+        console.print("[bold cyan]Scanning all executions to preview Zoho-compatible HTML descriptions...[/bold cyan]")
+        result = creator.update_all_executed_tasks_descriptions(dry_run=True)
+
+        for task_info in result["tasks"]:
+            status = task_info["status"]
+            color = "yellow" if status == "SKIPPED" else "green"
+            console.print(
+                Panel(
+                    task_info["description"],
+                    title=f"[{color}]{status}[/{color}] Task {task_info['zoho_task_id']} - {task_info['title']}",
+                    subtitle=f"Plan: {task_info['plan_id']}",
+                )
+            )
+
+        console.print(
+            f"\n[bold cyan]Preview Complete:[/bold cyan] {result['total_processed']} tasks scanned, "
+            f"[green]{result['updated_count']} eligible to update[/green], "
+            f"[yellow]{result['skipped_count']} already formatted (skip)[/yellow]."
+        )
+        return
+
+    # First run preview summary of what will be updated
+    console.print("[bold cyan]Scanning all executions to check task description statuses...[/bold cyan]")
+    preview_result = creator.update_all_executed_tasks_descriptions(dry_run=True)
+    eligible = [t for t in preview_result["tasks"] if t["status"] != "SKIPPED"]
+
+    if not eligible:
+        console.print("[bold green]✓ All tasks in Zoho Sprints are already formatted in Zoho-compatible HTML! Nothing to update.[/bold green]")
+        return
+
+    console.print(
+        f"Found [bold yellow]{len(eligible)}[/bold yellow] task(s) to update ({preview_result['skipped_count']} already formatted)."
+    )
+
+    if not yes:
+        confirmed = typer.confirm(f"Do you want to update all {len(eligible)} task descriptions in Zoho Sprints now?")
+        if not confirmed:
+            console.print("[yellow]Update aborted by user.[/yellow]")
+            raise typer.Exit(code=0)
+
+    console.print("\n[bold cyan]Applying updates to Zoho Sprints tasks...[/bold cyan]")
+    result = creator.update_all_executed_tasks_descriptions(dry_run=False)
+
+    table = Table(title="Task Description Reformatting & Verification Summary (LIVE)")
     table.add_column("Zoho Task ID", style="cyan", no_wrap=True)
     table.add_column("Task Title", style="white")
-    table.add_column("Plan ID", style="dim")
-    table.add_column("Status", style="green")
+    table.add_column("Status", style="bold")
+    table.add_column("Verified via API", style="green")
 
     for task_info in result["tasks"]:
+        status = task_info["status"]
+        status_styled = f"[green]{status}[/green]" if status == "UPDATED" else (f"[yellow]{status}[/yellow]" if status == "SKIPPED" else f"[red]{status}[/red]")
+        verified_styled = "[green]✓ Verified (HTML)[/green]" if task_info.get("verified") else "[red]✗ Verification Failed[/red]"
         table.add_row(
             task_info["zoho_task_id"],
             task_info["title"],
-            task_info["plan_id"] or "N/A",
-            task_info["status"],
+            status_styled,
+            verified_styled,
         )
 
     console.print(table)
 
     console.print(
-        f"\n[bold green]✓ Done![/bold green] Total processed: {result['total_processed']}, updated: {result['updated_count']}."
+        f"\n[bold green]✓ Done![/bold green] Total processed: {result['total_processed']}, "
+        f"updated: {result['updated_count']}, skipped: {result['skipped_count']}."
     )
     if result["errors"]:
         console.print(f"[bold red]Errors ({len(result['errors'])}):[/bold red]")
         for err in result["errors"]:
             console.print(f" - {err}")
-
 
 
 if __name__ == "__main__":

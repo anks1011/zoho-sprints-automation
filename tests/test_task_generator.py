@@ -49,7 +49,7 @@ def test_task_generator_fe_only(base_story: StoryItem) -> None:
     assert plan.fe_tasks[0].title == "FE - Add PDF Download Button and Loading State"
     assert plan.fe_tasks[0].task_type == "FE"
 
-    # Verify description contains all 6 Zoho-compatible plain text sections in exact order
+    # Verify description contains all 4 Zoho-compatible HTML sections in exact order
     desc = plan.fe_tasks[0].format_description()
 
     # 1. No Markdown headings, bold syntax, or bullets
@@ -57,24 +57,27 @@ def test_task_generator_fe_only(base_story: StoryItem) -> None:
     assert "**" not in desc
     assert not any(line.strip().startswith("- ") for line in desc.splitlines())
 
-    # 2. Four sections are present, Testing Considerations & Acceptance Criteria are NOT present
-    assert "Objective:" in desc
-    assert "Scope:" in desc
-    assert "Expected Behavior:" in desc
-    assert "Dependencies:" in desc
+    # 2. Four sections are present with HTML tags, Testing Considerations & Acceptance Criteria are NOT present
+    assert "<p><strong>Objective:</strong>" in desc
+    assert "<p><strong>Scope:</strong>" in desc
+    assert "<p><strong>Expected Behavior:</strong>" in desc
+    assert "<p><strong>Dependencies:</strong>" in desc
+    assert "<ol>" in desc
+    assert "<li>" in desc
     assert "Testing Considerations" not in desc
     assert "Acceptance Criteria" not in desc
 
     # 3. Sections appear in the exact required order
-    obj_pos = desc.index("Objective:")
-    scope_pos = desc.index("Scope:")
-    exp_pos = desc.index("Expected Behavior:")
-    deps_pos = desc.index("Dependencies:")
+    obj_pos = desc.index("<strong>Objective:</strong>")
+    scope_pos = desc.index("<strong>Scope:</strong>")
+    exp_pos = desc.index("<strong>Expected Behavior:</strong>")
+    deps_pos = desc.index("<strong>Dependencies:</strong>")
     assert obj_pos < scope_pos < exp_pos < deps_pos
 
-    # 4. Scope and Expected Behavior use numbered lists (1. )
-    assert "1. " in desc[scope_pos:exp_pos]
-    assert "1. " in desc[exp_pos:deps_pos]
+    # 4. Scope and Expected Behavior use ordered lists
+    assert "<li>" in desc[scope_pos:exp_pos]
+    assert "<li>" in desc[exp_pos:deps_pos]
+
 
 
 def test_task_generator_be_only(base_story: StoryItem) -> None:
@@ -189,35 +192,39 @@ def test_task_description_zoho_compatible_format() -> None:
     assert "**" not in desc
     assert not any(line.strip().startswith("- ") for line in desc.splitlines())
 
-    # 2. Four required sections present with plain-text labels, no Testing Considerations or Acceptance Criteria
-    assert "Objective:" in desc
-    assert "Scope:" in desc
-    assert "Expected Behavior:" in desc
-    assert "Dependencies:" in desc
+    # 2. Four required sections present with HTML tags, no Testing Considerations or Acceptance Criteria
+    assert "<p><strong>Objective:</strong>" in desc
+    assert "<p><strong>Scope:</strong>" in desc
+    assert "<p><strong>Expected Behavior:</strong>" in desc
+    assert "<p><strong>Dependencies:</strong>" in desc
     assert "Testing Considerations" not in desc
     assert "Acceptance Criteria" not in desc
 
     # 3. Strict order
-    obj_idx = desc.index("Objective:")
-    scope_idx = desc.index("Scope:")
-    exp_idx = desc.index("Expected Behavior:")
-    deps_idx = desc.index("Dependencies:")
+    obj_idx = desc.index("<strong>Objective:</strong>")
+    scope_idx = desc.index("<strong>Scope:</strong>")
+    exp_idx = desc.index("<strong>Expected Behavior:</strong>")
+    deps_idx = desc.index("<strong>Dependencies:</strong>")
     assert obj_idx < scope_idx < exp_idx < deps_idx
 
-    # 4. Scope and Expected Behavior use numbered lists
+    # 4. Scope, Expected Behavior, and Dependencies use ordered lists
     scope_text = desc[scope_idx:exp_idx]
     exp_text = desc[exp_idx:deps_idx]
+    deps_text = desc[deps_idx:]
 
-    assert "1. Implement service class" in scope_text
-    assert "2. Connect repository" in scope_text
-    assert "3. Handle validation exceptions" in scope_text
+    assert "<li>Implement service class</li>" in scope_text
+    assert "<li>Connect repository</li>" in scope_text
+    assert "<li>Handle validation exceptions</li>" in scope_text
 
-    assert "1. Valid data returns HTTP 200" in exp_text
-    assert "2. Invalid data returns HTTP 400 with error details" in exp_text
+    assert "<li>Valid data returns HTTP 200</li>" in exp_text
+    assert "<li>Invalid data returns HTTP 400 with error details</li>" in exp_text
+
+    assert "<li>Database connection pool</li>" in deps_text
+    assert "<li>Configuration service</li>" in deps_text
 
 
 def test_task_description_fallback_defaults_use_numbered_lists() -> None:
-    """Verify fallback dependencies and scopes format with numbered lists and plain-text headers."""
+    """Verify fallback dependencies and scopes format with numbered lists and HTML tags."""
     from src.services.task_models import GeneratedTask
 
     task = GeneratedTask(
@@ -233,9 +240,54 @@ def test_task_description_fallback_defaults_use_numbered_lists() -> None:
 
     assert "##" not in desc
     assert "**" not in desc
-    assert "Objective:\nMinimal objective description." in desc
-    assert "Scope:\n\n1. Implement requirements according to story specification." in desc
-    assert "Expected Behavior:\n\n1. System behaves as defined in objective." in desc
-    assert "Dependencies:\nNone identified." in desc
+    assert "<p><strong>Objective:</strong><br>\nMinimal objective description.</p>" in desc
+    assert "<p><strong>Scope:</strong></p>\n<ol>\n  <li>Implement requirements according to story specification.</li>\n</ol>" in desc
+    assert "<p><strong>Expected Behavior:</strong></p>\n<ol>\n  <li>System behaves as defined in objective.</li>\n</ol>" in desc
+    assert "<p><strong>Dependencies:</strong><br>\nNone identified.</p>" in desc
     assert "Testing Considerations" not in desc
     assert "Acceptance Criteria" not in desc
+
+
+def test_task_description_html_escaping() -> None:
+    """Verify that dynamic content with <, >, &, and quotes is safely escaped."""
+    from src.services.task_models import GeneratedTask
+
+    task = GeneratedTask(
+        title="FE - XSS & Entities Test",
+        task_type="FE",
+        objective="Validate <script>alert('xss')</script> & 'single' and \"double\" quotes.",
+        scope="Field <user_input> & condition > 10\nAnother check <= 5",
+        expected_behavior="Response includes <ok> & no error",
+        dependencies="API <v1> & Auth",
+    )
+
+    desc = task.format_description()
+
+    assert "<script>" not in desc
+    assert "&lt;script&gt;alert(&#x27;xss&#x27;)&lt;/script&gt; &amp; &#x27;single&#x27; and &quot;double&quot; quotes." in desc
+    assert "&lt;user_input&gt; &amp; condition &gt; 10" in desc
+    assert "Another check &lt;= 5" in desc
+    assert "&lt;ok&gt; &amp; no error" in desc
+    assert "API &lt;v1&gt; &amp; Auth" in desc
+
+
+def test_is_zoho_html_formatted() -> None:
+    """Verify is_zoho_html_formatted accurately detects valid Zoho HTML and rejects plain text or legacy sections."""
+    from src.services.task_models import is_zoho_html_formatted, format_zoho_html_description
+
+    valid_html = format_zoho_html_description(
+        objective="Valid obj",
+        scope="Scope item 1",
+        expected_behavior="Expected item 1",
+        dependencies="None identified",
+    )
+    assert is_zoho_html_formatted(valid_html) is True
+
+    # Legacy plain text should return False
+    plain_text = "Objective:\nValid obj\n\nScope:\n1. Scope item 1\n\nExpected Behavior:\n1. Expected\n\nDependencies:\nNone identified."
+    assert is_zoho_html_formatted(plain_text) is False
+
+    # HTML with Testing Considerations should return False
+    with_tc = valid_html + "\n<p><strong>Testing Considerations:</strong></p>"
+    assert is_zoho_html_formatted(with_tc) is False
+

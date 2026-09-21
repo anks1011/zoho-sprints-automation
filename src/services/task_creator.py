@@ -18,7 +18,12 @@ from src.client.zoho_client import SprintsAPIError
 from src.config import Settings, get_settings
 from src.services.execution_tracker import ExecutionRecord, ExecutionTracker, TaskExecutionState
 from src.services.owner_validator import OwnerValidator
-from src.services.task_models import GeneratedTask, GeneratedTaskPlan
+from src.services.task_models import (
+    GeneratedTask,
+    GeneratedTaskPlan,
+    format_zoho_html_description,
+    is_zoho_html_formatted,
+)
 from src.utils.security import sanitize_payload
 
 logger = logging.getLogger(__name__)
@@ -444,21 +449,38 @@ class TaskCreator:
             tasks=record.tasks,
         )
 
+    def _fetch_zoho_item_description(self, team_id: str, project_id: str, sprint_id: str, item_id: str) -> str:
+        """Fetch live description for an item from Zoho Sprints."""
+        try:
+            resp = self.api.client.request(
+                "GET",
+                f"team/{team_id}/projects/{project_id}/sprints/{sprint_id}/item/{item_id}/",
+                params={"action": "details"},
+            )
+            raw_item = (resp.get("items") or [{}])[0] if isinstance(resp, dict) else {}
+            return raw_item.get("desc") or raw_item.get("description") or ""
+        except Exception as e:
+            logger.warning("Failed to fetch current description for %s: %s", item_id, e)
+            return ""
+
     def update_all_executed_tasks_descriptions(
         self, plan_store: Optional[Any] = None, dry_run: bool = False
     ) -> Dict[str, Any]:
         """Fetch all tasks created by this application from existing executions/plans,
-        reformat each task description into clean Zoho-compatible readable format,
+        reformat each task description into clean Zoho-compatible HTML format,
         and completely remove Testing Considerations and Acceptance Criteria sections and content.
+        Skips tasks that are already formatted in Zoho-compatible HTML.
         """
         if plan_store is None:
             from src.services.plan_store import PlanStore
             plan_store = PlanStore(settings=self.settings)
 
         records = self.tracker.list_records()
-        processed_tasks = set()
-        updated_tasks = []
+        processed_task_ids = set()
+        task_results = []
         errors = []
+        skipped_count = 0
+        updated_count = 0
 
         for record in records:
             plan = None
@@ -474,74 +496,127 @@ class TaskCreator:
                 zoho_task_id = state.zoho_task_id
                 title = state.title.strip()
 
-                if not zoho_task_id or zoho_task_id in processed_tasks:
+                if not zoho_task_id or zoho_task_id in processed_task_ids:
                     continue
 
-                # 1. Obtain clean formatted description
+                processed_task_ids.add(zoho_task_id)
+
+                # Fetch live current description from Zoho Sprints
+                current_desc = self._fetch_zoho_item_description(
+                    record.team_id, record.project_id, record.sprint_id, zoho_task_id
+                )
+
+                # 1. Skip already formatted tasks
+                if is_zoho_html_formatted(current_desc):
+                    skipped_count += 1
+                    task_results.append({
+                        "zoho_task_id": zoho_task_id,
+                        "title": title,
+                        "plan_id": record.plan_id,
+                        "story_id": record.story_id,
+                        "status": "SKIPPED",
+                        "reason": "Already formatted in Zoho HTML",
+                        "description": current_desc,
+                        "verified": True,
+                    })
+                    logger.info("Task %s already formatted in Zoho HTML, skipping", zoho_task_id)
+                    continue
+
+                # 2. Obtain clean formatted HTML description
                 plan_task = plan_tasks.get(title)
                 if plan_task:
                     new_desc = plan_task.format_description()
                 else:
-                    # Fetch from Zoho and strip
-                    try:
-                        resp = self.api.client.request(
-                            "GET",
-                            f"team/{record.team_id}/projects/{record.project_id}/sprints/{record.sprint_id}/item/{zoho_task_id}/",
-                            params={"action": "details"},
-                        )
-                        raw_item = (resp.get("items") or [{}])[0] if isinstance(resp, dict) else {}
-                        new_desc = raw_item.get("desc") or raw_item.get("description") or ""
-                    except Exception as fetch_err:
-                        err_msg = f"Failed to fetch task {zoho_task_id} ({title}): {fetch_err}"
-                        logger.error(err_msg)
-                        errors.append(err_msg)
-                        continue
+                    # Fallback parse from current description
+                    text = re.sub(
+                        r"(?im)^(?:##\s*)?Testing Considerations:?[\s\S]*?(?=(?:^|\n)(?:##\s*)?(?:Acceptance Criteria:|Objective:|Scope:|Expected Behavior:|Dependencies:)|\Z)",
+                        "",
+                        current_desc,
+                    ).strip()
+                    text = re.sub(
+                        r"(?im)^(?:##\s*)?Acceptance Criteria:?[\s\S]*?(?=(?:^|\n)(?:##\s*)?(?:Testing Considerations:|Objective:|Scope:|Expected Behavior:|Dependencies:)|\Z)",
+                        "",
+                        text,
+                    ).strip()
 
-                # 2. Guarantee removal of Testing Considerations and Acceptance Criteria (headings and contents)
-                new_desc = re.sub(
-                    r"(?im)^(?:##\s*)?Testing Considerations:?[\s\S]*?(?=(?:^|\n)(?:##\s*)?(?:Acceptance Criteria:|Objective:|Scope:|Expected Behavior:|Dependencies:)|\Z)",
-                    "",
-                    new_desc,
-                ).strip()
-                new_desc = re.sub(
-                    r"(?im)^(?:##\s*)?Acceptance Criteria:?[\s\S]*?(?=(?:^|\n)(?:##\s*)?(?:Testing Considerations:|Objective:|Scope:|Expected Behavior:|Dependencies:)|\Z)",
-                    "",
-                    new_desc,
-                ).strip()
+                    obj_match = re.search(
+                        r"(?im)^(?:##\s*)?Objective:?\s*\n([\s\S]*?)(?=(?:^|\n)(?:##\s*)?(?:Scope:|Expected Behavior:|Dependencies:)|\Z)",
+                        text,
+                    )
+                    scope_match = re.search(
+                        r"(?im)^(?:##\s*)?Scope:?\s*\n([\s\S]*?)(?=(?:^|\n)(?:##\s*)?(?:Expected Behavior:|Dependencies:)|\Z)",
+                        text,
+                    )
+                    exp_match = re.search(
+                        r"(?im)^(?:##\s*)?Expected Behavior:?\s*\n([\s\S]*?)(?=(?:^|\n)(?:##\s*)?(?:Dependencies:)|\Z)",
+                        text,
+                    )
+                    deps_match = re.search(
+                        r"(?im)^(?:##\s*)?Dependencies:?\s*\n([\s\S]*?)$", text
+                    )
+
+                    new_desc = format_zoho_html_description(
+                        objective=obj_match.group(1).strip() if obj_match else text,
+                        scope=scope_match.group(1).strip() if scope_match else "",
+                        expected_behavior=exp_match.group(1).strip() if exp_match else "",
+                        dependencies=deps_match.group(1).strip() if deps_match else "None identified.",
+                    )
+
+                # Final assertion: ensure Testing Considerations and Acceptance Criteria are completely absent
+                assert "Testing Considerations" not in new_desc
+                assert "Acceptance Criteria" not in new_desc
 
                 if not dry_run:
                     endpoint = f"team/{record.team_id}/projects/{record.project_id}/sprints/{record.sprint_id}/item/{zoho_task_id}/"
                     try:
                         self.api.client.request("POST", endpoint, data={"description": new_desc})
-                        processed_tasks.add(zoho_task_id)
-                        updated_tasks.append({
+                        # Fetch back through API to verify
+                        verified_desc = self._fetch_zoho_item_description(
+                            record.team_id, record.project_id, record.sprint_id, zoho_task_id
+                        )
+                        is_verified = is_zoho_html_formatted(verified_desc)
+                        updated_count += 1
+                        task_results.append({
                             "zoho_task_id": zoho_task_id,
                             "title": title,
                             "plan_id": record.plan_id,
                             "story_id": record.story_id,
                             "status": "UPDATED",
                             "description": new_desc,
+                            "verified": is_verified,
                         })
-                        logger.info("Updated task %s (%s)", zoho_task_id, title)
+                        logger.info("Updated task %s (%s), verified=%s", zoho_task_id, title, is_verified)
                     except Exception as update_err:
                         err_msg = f"Failed to update task {zoho_task_id} ({title}): {update_err}"
                         logger.error(err_msg)
                         errors.append(err_msg)
+                        task_results.append({
+                            "zoho_task_id": zoho_task_id,
+                            "title": title,
+                            "plan_id": record.plan_id,
+                            "story_id": record.story_id,
+                            "status": "FAILED",
+                            "error": str(update_err),
+                            "description": new_desc,
+                            "verified": False,
+                        })
                 else:
-                    processed_tasks.add(zoho_task_id)
-                    updated_tasks.append({
+                    updated_count += 1
+                    task_results.append({
                         "zoho_task_id": zoho_task_id,
                         "title": title,
                         "plan_id": record.plan_id,
                         "story_id": record.story_id,
                         "status": "DRY_RUN",
                         "description": new_desc,
+                        "verified": False,
                     })
 
         return {
-            "total_processed": len(processed_tasks),
-            "updated_count": len(updated_tasks),
+            "total_processed": len(processed_task_ids),
+            "updated_count": updated_count,
+            "skipped_count": skipped_count,
             "errors": errors,
-            "tasks": updated_tasks,
+            "tasks": task_results,
         }
 

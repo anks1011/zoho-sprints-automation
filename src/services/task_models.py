@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import uuid
 from datetime import datetime, timezone
 from typing import List, Literal, Optional
@@ -77,6 +78,93 @@ def ensure_numbered_list(text: Any, fallback: str = "None identified.") -> str:
     return "\n".join(f"{idx}. {item}" for idx, item in enumerate(cleaned_items, start=1))
 
 
+def parse_list_items(text: Any, fallback: Optional[List[str]] = None) -> List[str]:
+    """Parse text or list of strings into a list of cleaned plain text items without bullets or numbers."""
+    items: List[str] = []
+    if not text:
+        return fallback or []
+
+    if isinstance(text, list):
+        for item in text:
+            cleaned_str = clean_plain_text(item)
+            if not cleaned_str:
+                continue
+            for line in cleaned_str.splitlines():
+                clean = re.sub(r"^(?:[-*+•]|\d+[.)])\s*", "", line.strip()).strip()
+                if clean and clean.lower().rstrip(".") not in ("none", "none identified"):
+                    items.append(clean)
+    else:
+        raw_text = clean_plain_text(text)
+        for line in raw_text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            clean = re.sub(r"^(?:[-*+•]|\d+[.)])\s*", "", line).strip()
+            if clean and clean.lower().rstrip(".") not in ("none", "none identified"):
+                items.append(clean)
+
+    return items if items else (fallback or [])
+
+
+def format_zoho_html_description(
+    objective: str,
+    scope: Any,
+    expected_behavior: Any,
+    dependencies: Any,
+) -> str:
+    """Format task description in Zoho-compatible safe HTML with separate sections and numbered lists.
+    No Markdown syntax, dynamic user content is escaped, and Testing Considerations/Acceptance Criteria are excluded.
+    """
+    clean_obj = clean_plain_text(objective)
+    escaped_obj = html.escape(clean_obj)
+
+    scope_items = parse_list_items(
+        scope, fallback=["Implement requirements according to story specification."]
+    )
+    scope_li = "\n".join(f"  <li>{html.escape(item)}</li>" for item in scope_items)
+
+    exp_items = parse_list_items(
+        expected_behavior, fallback=["System behaves as defined in objective."]
+    )
+    exp_li = "\n".join(f"  <li>{html.escape(item)}</li>" for item in exp_items)
+
+    deps_raw = clean_plain_text(dependencies)
+    deps_check = re.sub(r"^(?:[-*+•]|\d+[.)])\s*", "", deps_raw).strip()
+    if not deps_raw or deps_check.lower().rstrip(".") in ("none", "none identified"):
+        deps_section = "<p><strong>Dependencies:</strong><br>\nNone identified.</p>"
+    else:
+        dep_items = parse_list_items(dependencies, fallback=["None identified."])
+        if not dep_items or (len(dep_items) == 1 and dep_items[0].lower().rstrip(".") in ("none", "none identified")):
+            deps_section = "<p><strong>Dependencies:</strong><br>\nNone identified.</p>"
+        else:
+            deps_li = "\n".join(f"  <li>{html.escape(item)}</li>" for item in dep_items)
+            deps_section = f"<p><strong>Dependencies:</strong></p>\n<ol>\n{deps_li}\n</ol>"
+
+    return (
+        f"<p><strong>Objective:</strong><br>\n{escaped_obj}</p>\n\n"
+        f"<p><strong>Scope:</strong></p>\n<ol>\n{scope_li}\n</ol>\n\n"
+        f"<p><strong>Expected Behavior:</strong></p>\n<ol>\n{exp_li}\n</ol>\n\n"
+        f"{deps_section}"
+    )
+
+
+def is_zoho_html_formatted(description: str) -> bool:
+    """Check whether a task description is already in the Zoho-compatible safe HTML format."""
+    if not description:
+        return False
+    if "Testing Considerations" in description or "Acceptance Criteria" in description:
+        return False
+    required_tags = [
+        "<p><strong>Objective:</strong>",
+        "<p><strong>Scope:</strong>",
+        "<p><strong>Expected Behavior:</strong>",
+        "<p><strong>Dependencies:</strong>",
+        "<ol>",
+        "<li>",
+    ]
+    return all(tag in description for tag in required_tags)
+
+
 def ensure_bullet_points(text: Any, fallback: str = "None identified") -> str:
     """Legacy helper for backward compatibility - delegates to ensure_numbered_list."""
     return ensure_numbered_list(text, fallback=fallback)
@@ -113,45 +201,12 @@ class GeneratedTask(BaseModel):
         raise ValueError(f"Task title must start with 'FE - ' or 'BE - XX - ', got: '{clean}'")
 
     def format_description(self) -> str:
-        """Format the task description using Zoho-compatible plain text and numbered lists:
-        Objective:
-        ...
-
-        Scope:
-
-        1. ...
-        2. ...
-
-        Expected Behavior:
-
-        1. ...
-        2. ...
-
-        Dependencies:
-        None identified. (or numbered list)
-        """
-        obj = clean_plain_text(self.objective)
-        scope = ensure_numbered_list(self.scope, fallback="1. Implement requirements according to story specification.")
-        exp = ensure_numbered_list(self.expected_behavior, fallback="1. System behaves as defined in objective.")
-
-        deps_raw = clean_plain_text(self.dependencies)
-        clean_deps_check = re.sub(r"^(?:[-*+•]|\d+[.)])\s*", "", deps_raw).strip()
-        if not deps_raw or clean_deps_check.lower().rstrip(".") in ("none", "none identified"):
-            deps_section = "Dependencies:\nNone identified."
-        else:
-            deps_formatted = ensure_numbered_list(self.dependencies, fallback="None identified.")
-            if deps_formatted == "None identified.":
-                deps_section = "Dependencies:\nNone identified."
-            elif deps_formatted.startswith("1. "):
-                deps_section = f"Dependencies:\n\n{deps_formatted}"
-            else:
-                deps_section = f"Dependencies:\n{deps_formatted}"
-
-        return (
-            f"Objective:\n{obj}\n\n"
-            f"Scope:\n\n{scope}\n\n"
-            f"Expected Behavior:\n\n{exp}\n\n"
-            f"{deps_section}"
+        """Format the task description using Zoho-compatible safe HTML with separate sections and numbered lists."""
+        return format_zoho_html_description(
+            objective=self.objective,
+            scope=self.scope,
+            expected_behavior=self.expected_behavior,
+            dependencies=self.dependencies,
         )
 
 
