@@ -39,15 +39,22 @@ STRICT CONSTRAINTS & ARCHITECTURAL GUIDELINES:
      * Generate justified, sequential backend task drafts (`backend_tasks`) broken down cleanly by technical domain / responsibility (e.g. BE - 01 for Template Schema and Column Resolution API, BE - 02 for Layout Configuration and Table-Section Validation Service).
      * Do not create artificial tasks just to inflate task counts, but do not lump disparate backend responsibilities into a single oversized task when distinct architectural boundaries exist.
 5. Task Content Structure & Formatting (MANDATORY):
-   - For every task (FE and each BE), provide complete, detailed contents strictly adhering to these 4 sections:
+   - Zoho Sprints displays task descriptions in an HTML container and does not parse Markdown.
+   - STRICT FORMATTING RULES:
+     * DO NOT use Markdown headings such as '## Objective'. Use plain-text labels ending in a colon (e.g. 'Objective:').
+     * DO NOT use Markdown bold syntax such as '**text**'.
+     * DO NOT use Markdown bullet syntax ('- ', '* ').
+     * Use sequential NUMBERED LISTS ('1. ', '2. ') for all list sections.
+     * Preserve double line breaks between sections.
+   - For every task (FE and each BE), provide complete, detailed contents strictly adhering to these 6 sections:
      * title_suffix: Clear, professional title describing the work.
      * objective: A clear and concise description of what this task accomplishes and why it is required (as a concise paragraph).
-     * scope: Specific implementation responsibilities and components affected. MUST use bullet points (each line starting with '- ').
-     * expected_behavior: Clear description of expected system behavior under normal and failure/edge conditions. MUST use bullet points (each line starting with '- ').
-     * dependencies: Required services, configurations, permissions, APIs, or other dependencies. MUST use bullet points (each line starting with '- '). If none, use '- None identified'.
-   - DO NOT include or generate any 'Testing Considerations' section.
-   - DO NOT include or generate any 'Acceptance Criteria' section.
-   - Keep content specific to the task. Do NOT generate scope, expected behavior, or dependencies as plain paragraphs; format them with bullet points.
+     * scope: Specific implementation responsibilities and components affected. MUST use a numbered list ('1. ...\n2. ...').
+     * expected_behavior: Clear description of expected system behavior under normal and failure/edge conditions. MUST use a numbered list ('1. ...\n2. ...').
+     * dependencies: Required services, configurations, permissions, APIs, or other dependencies. Use 'None identified.' or a numbered list.
+     * testing_considerations: Unit, integration, or UI test scenarios. MUST use a numbered list ('1. ...\n2. ...').
+     * acceptance_criteria: Verifiable acceptance criteria for this task. Array of strings or numbered list.
+   - Keep content specific to the task. Do NOT generate scope, expected behavior, testing considerations, or acceptance criteria as plain paragraphs; format them as numbered lists.
 6. If the story description is short, ambiguous, or missing crucial specifications, explicitly list the ambiguities in the `ambiguities` array.
 7. Output MUST be valid JSON adhering strictly to the provided schema.
 """
@@ -130,18 +137,22 @@ class AIStoryAnalyzer:
             f'  "frontend_task": {{\n'
             f'    "title_suffix": "string (clear title describing UI work)",\n'
             f'    "objective": "string (concise paragraph)",\n'
-            f'    "scope": "- Bullet 1\\n- Bullet 2",\n'
-            f'    "expected_behavior": "- Bullet 1\\n- Bullet 2",\n'
-            f'    "dependencies": "- None identified or - Service/API dependency"\n'
+            f'    "scope": "1. First scope item\\n2. Second scope item",\n'
+            f'    "expected_behavior": "1. First behavior\\n2. Second behavior",\n'
+            f'    "dependencies": "None identified. or 1. Service dependency",\n'
+            f'    "testing_considerations": "1. Test scenario 1\\n2. Test scenario 2",\n'
+            f'    "acceptance_criteria": ["1. Acceptance criterion 1", "2. Acceptance criterion 2"]\n'
             f'  }} or null,\n'
             f'  "backend_tasks": [\n'
             f'    {{\n'
             f'      "boundary": "API/DB/Logic/Worker",\n'
             f'      "title_suffix": "string (clear title describing backend work)",\n'
             f'      "objective": "string (concise paragraph)",\n'
-            f'      "scope": "- Bullet 1\\n- Bullet 2",\n'
-            f'      "expected_behavior": "- Bullet 1\\n- Bullet 2",\n'
-            f'      "dependencies": "- None identified or - Service/API dependency"\n'
+            f'      "scope": "1. First scope item\\n2. Second scope item",\n'
+            f'      "expected_behavior": "1. First behavior\\n2. Second behavior",\n'
+            f'      "dependencies": "None identified. or 1. Service dependency",\n'
+            f'      "testing_considerations": "1. Test scenario 1\\n2. Test scenario 2",\n'
+            f'      "acceptance_criteria": ["1. Acceptance criterion 1", "2. Acceptance criterion 2"]\n'
             f'    }}\n'
             f'  ]\n'
             f"}}"

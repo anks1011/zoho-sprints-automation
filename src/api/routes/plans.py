@@ -31,7 +31,13 @@ from src.services.plan_store import PlanStore
 from src.services.story_service import StoryService, StoryServiceError
 from src.services.task_creator import TaskCreator
 from src.services.task_generator import TaskGenerationError, TaskGenerator
-from src.services.task_models import GeneratedTask, GeneratedTaskPlan, TaskOwner, ensure_bullet_points
+from src.services.task_models import (
+    GeneratedTask,
+    GeneratedTaskPlan,
+    TaskOwner,
+    ensure_bullet_points,
+    ensure_numbered_list,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -351,11 +357,11 @@ def update_plan(
             task_type=t_item.task_type,
             index=t_item.index,
             objective=t_item.objective.strip(),
-            scope=ensure_bullet_points(t_item.scope, fallback="Implement requirements according to story specification."),
-            expected_behavior=ensure_bullet_points(t_item.expected_behavior, fallback="System behaves as defined in objective."),
-            dependencies=ensure_bullet_points(t_item.dependencies, fallback="None identified"),
-            testing_considerations="",
-            acceptance_criteria=[],
+            scope=ensure_numbered_list(t_item.scope, fallback="1. Implement requirements according to story specification."),
+            expected_behavior=ensure_numbered_list(t_item.expected_behavior, fallback="1. System behaves as defined in objective."),
+            dependencies=ensure_numbered_list(t_item.dependencies, fallback="None identified."),
+            testing_considerations=ensure_numbered_list(t_item.testing_considerations, fallback="1. Verify behavior matches expected functionality.\n2. Verify edge cases and error handling."),
+            acceptance_criteria=t_item.acceptance_criteria or (prev_task.acceptance_criteria if prev_task else []),
             assignee=assignee,
             qa_owner=qa_owner,
         )

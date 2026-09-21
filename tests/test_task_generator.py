@@ -49,36 +49,36 @@ def test_task_generator_fe_only(base_story: StoryItem) -> None:
     assert plan.fe_tasks[0].title == "FE - Add PDF Download Button and Loading State"
     assert plan.fe_tasks[0].task_type == "FE"
 
-    # Verify description contains all 4 required Markdown sections in exact order
+    # Verify description contains all 6 Zoho-compatible plain text sections in exact order
     desc = plan.fe_tasks[0].format_description()
 
-    # 1. All four required sections are present with ## headings
-    assert "## Objective" in desc
-    assert "## Scope" in desc
-    assert "## Expected Behavior" in desc
-    assert "## Dependencies" in desc
+    # 1. No Markdown headings, bold syntax, or bullets
+    assert "##" not in desc
+    assert "**" not in desc
+    assert not any(line.strip().startswith("- ") for line in desc.splitlines())
 
-    # 2. Sections appear in the exact required order
-    obj_pos = desc.index("## Objective")
-    scope_pos = desc.index("## Scope")
-    exp_pos = desc.index("## Expected Behavior")
-    deps_pos = desc.index("## Dependencies")
-    assert obj_pos < scope_pos < exp_pos < deps_pos
+    # 2. All 6 sections are present
+    assert "Objective:" in desc
+    assert "Scope:" in desc
+    assert "Expected Behavior:" in desc
+    assert "Dependencies:" in desc
+    assert "Testing Considerations:" in desc
+    assert "Acceptance Criteria:" in desc
 
-    # 3. Testing Considerations and Acceptance Criteria are NOT present
-    assert "Testing Considerations" not in desc
-    assert "Testing considerations" not in desc
-    assert "Acceptance Criteria" not in desc
-    assert "Acceptance criteria" not in desc
+    # 3. Sections appear in the exact required order
+    obj_pos = desc.index("Objective:")
+    scope_pos = desc.index("Scope:")
+    exp_pos = desc.index("Expected Behavior:")
+    deps_pos = desc.index("Dependencies:")
+    test_pos = desc.index("Testing Considerations:")
+    ac_pos = desc.index("Acceptance Criteria:")
+    assert obj_pos < scope_pos < exp_pos < deps_pos < test_pos < ac_pos
 
-    # 4. Scope, Expected Behavior, and Dependencies use bullet points (- )
-    scope_section = desc[scope_pos:exp_pos]
-    exp_section = desc[exp_pos:deps_pos]
-    deps_section = desc[deps_pos:]
-
-    assert any(line.strip().startswith("- ") for line in scope_section.splitlines() if line.strip() and not line.startswith("##"))
-    assert any(line.strip().startswith("- ") for line in exp_section.splitlines() if line.strip() and not line.startswith("##"))
-    assert any(line.strip().startswith("- ") for line in deps_section.splitlines() if line.strip() and not line.startswith("##"))
+    # 4. Scope, Expected Behavior, Testing Considerations, and Acceptance Criteria use numbered lists (1. )
+    assert "1. " in desc[scope_pos:exp_pos]
+    assert "1. " in desc[exp_pos:deps_pos]
+    assert "1. " in desc[test_pos:ac_pos]
+    assert "1. " in desc[ac_pos:]
 
 
 def test_task_generator_be_only(base_story: StoryItem) -> None:
@@ -170,8 +170,8 @@ def test_task_generator_no_tasks_raises_error(base_story: StoryItem) -> None:
         generator.generate_plan(base_story, analysis)
 
 
-def test_task_description_exact_four_sections_and_bullet_points() -> None:
-    """Verify that every generated task description strictly conforms to the 4 Markdown sections in exact order."""
+def test_task_description_zoho_compatible_format() -> None:
+    """Verify that every generated task description strictly conforms to the 6 plain-text sections with numbered lists."""
     from src.services.task_models import GeneratedTask
 
     task = GeneratedTask(
@@ -182,46 +182,56 @@ def test_task_description_exact_four_sections_and_bullet_points() -> None:
         scope="Implement service class\nConnect repository\nHandle validation exceptions",
         expected_behavior="Valid data returns HTTP 200\nInvalid data returns HTTP 400 with error details",
         dependencies="Database connection pool\nConfiguration service",
-        testing_considerations="Legacy test field that must be ignored",
-        acceptance_criteria=["Legacy criteria that must be ignored"],
+        testing_considerations="Unit test for service logic\nIntegration test with repository",
+        acceptance_criteria=["Valid data returns HTTP 200", "Invalid data returns structured error"],
     )
 
     desc = task.format_description()
 
-    # 1. Four required sections present with ## headings
-    assert "## Objective" in desc
-    assert "## Scope" in desc
-    assert "## Expected Behavior" in desc
-    assert "## Dependencies" in desc
+    # 1. No Markdown headings, bold, or bullet points
+    assert "##" not in desc
+    assert "**" not in desc
+    assert not any(line.strip().startswith("- ") for line in desc.splitlines())
 
-    # 2. Strict order
-    obj_idx = desc.index("## Objective")
-    scope_idx = desc.index("## Scope")
-    exp_idx = desc.index("## Expected Behavior")
-    deps_idx = desc.index("## Dependencies")
-    assert obj_idx < scope_idx < exp_idx < deps_idx
+    # 2. Six required sections present with plain-text labels
+    assert "Objective:" in desc
+    assert "Scope:" in desc
+    assert "Expected Behavior:" in desc
+    assert "Dependencies:" in desc
+    assert "Testing Considerations:" in desc
+    assert "Acceptance Criteria:" in desc
 
-    # 3. Neither Testing Considerations nor Acceptance Criteria are present
-    assert "Testing Considerations" not in desc
-    assert "Testing considerations" not in desc
-    assert "Acceptance Criteria" not in desc
-    assert "Acceptance criteria" not in desc
+    # 3. Strict order
+    obj_idx = desc.index("Objective:")
+    scope_idx = desc.index("Scope:")
+    exp_idx = desc.index("Expected Behavior:")
+    deps_idx = desc.index("Dependencies:")
+    test_idx = desc.index("Testing Considerations:")
+    ac_idx = desc.index("Acceptance Criteria:")
+    assert obj_idx < scope_idx < exp_idx < deps_idx < test_idx < ac_idx
 
-    # 4. Scope, Expected Behavior, and Dependencies use bullet points (- )
-    scope_lines = [line.strip() for line in desc[scope_idx:exp_idx].splitlines() if line.strip() and not line.startswith("##")]
-    exp_lines = [line.strip() for line in desc[exp_idx:deps_idx].splitlines() if line.strip() and not line.startswith("##")]
-    deps_lines = [line.strip() for line in desc[deps_idx:].splitlines() if line.strip() and not line.startswith("##")]
+    # 4. Scope, Expected Behavior, Testing Considerations, Acceptance Criteria use numbered lists
+    scope_text = desc[scope_idx:exp_idx]
+    exp_text = desc[exp_idx:deps_idx]
+    test_text = desc[test_idx:ac_idx]
+    ac_text = desc[ac_idx:]
 
-    assert all(line.startswith("- ") for line in scope_lines)
-    assert len(scope_lines) == 3
-    assert all(line.startswith("- ") for line in exp_lines)
-    assert len(exp_lines) == 2
-    assert all(line.startswith("- ") for line in deps_lines)
-    assert len(deps_lines) == 2
+    assert "1. Implement service class" in scope_text
+    assert "2. Connect repository" in scope_text
+    assert "3. Handle validation exceptions" in scope_text
+
+    assert "1. Valid data returns HTTP 200" in exp_text
+    assert "2. Invalid data returns HTTP 400 with error details" in exp_text
+
+    assert "1. Unit test for service logic" in test_text
+    assert "2. Integration test with repository" in test_text
+
+    assert "1. Valid data returns HTTP 200" in ac_text
+    assert "2. Invalid data returns structured error" in ac_text
 
 
-def test_task_description_fallback_defaults_use_bullets() -> None:
-    """Verify fallback dependencies and scopes format with bullet points."""
+def test_task_description_fallback_defaults_use_numbered_lists() -> None:
+    """Verify fallback dependencies and scopes format with numbered lists and plain-text headers."""
     from src.services.task_models import GeneratedTask
 
     task = GeneratedTask(
@@ -235,9 +245,11 @@ def test_task_description_fallback_defaults_use_bullets() -> None:
 
     desc = task.format_description()
 
-    assert "## Objective\nMinimal objective description." in desc
-    assert "## Scope\n- Implement requirements according to story specification." in desc
-    assert "## Expected Behavior\n- System behaves as defined in objective." in desc
-    assert "## Dependencies\n- None identified" in desc
-    assert "Testing Considerations" not in desc
-    assert "Acceptance Criteria" not in desc
+    assert "##" not in desc
+    assert "**" not in desc
+    assert "Objective:\nMinimal objective description." in desc
+    assert "Scope:\n\n1. Implement requirements according to story specification." in desc
+    assert "Expected Behavior:\n\n1. System behaves as defined in objective." in desc
+    assert "Dependencies:\nNone identified." in desc
+    assert "Testing Considerations:" in desc
+    assert "Acceptance Criteria:" in desc

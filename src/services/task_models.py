@@ -16,41 +16,70 @@ class TaskOwner(BaseModel):
     email: Optional[str] = None
 
 
-def ensure_bullet_points(text: Any, fallback: str = "None identified") -> str:
-    """Ensure that text is formatted as markdown bullet points, each starting with '- '."""
+import re
+
+
+def clean_plain_text(text: Any) -> str:
+    """Strip markdown formatting syntax like **bold**, *italic*, backticks, and markdown headings."""
     if not text:
-        return f"- {fallback}"
+        return ""
+    s = str(text)
+    # Remove markdown bold/italic
+    s = re.sub(r"\*\*([^*]+)\*\*", r"\1", s)
+    s = re.sub(r"__([^_]+)__", r"\1", s)
+    s = re.sub(r"\*([^*]+)\*", r"\1", s)
+    s = re.sub(r"_([^_]+)_", r"\1", s)
+    s = re.sub(r"`([^`]+)`", r"\1", s)
+    # Remove leading markdown headers if any
+    s = re.sub(r"^#{1,6}\s*", "", s, flags=re.MULTILINE)
+    return s.strip()
+
+
+def ensure_numbered_list(text: Any, fallback: str = "None identified.") -> str:
+    """Ensure that text or items are formatted as a sequential numbered list:
+    1. First item
+    2. Second item
+    """
+    if not text:
+        return fallback
 
     if isinstance(text, list):
-        items = [str(item).strip() for item in text if str(item).strip()]
-        if not items:
-            return f"- {fallback}"
-        return "\n".join(f"- {item.lstrip('- *•+').strip()}" for item in items if item.lstrip("- *•+").strip())
+        cleaned_items: List[str] = []
+        for item in text:
+            cleaned_str = clean_plain_text(item)
+            if not cleaned_str:
+                continue
+            for line in cleaned_str.splitlines():
+                clean = re.sub(r"^(?:[-*+•]|\d+[.)])\s*", "", line.strip()).strip()
+                if clean and clean.lower().rstrip(".") not in ("none", "none identified"):
+                    cleaned_items.append(clean)
+        if not cleaned_items:
+            return fallback
+        return "\n".join(f"{idx}. {item}" for idx, item in enumerate(cleaned_items, start=1))
 
-    clean_text = str(text).strip()
-    if not clean_text:
-        return f"- {fallback}"
+    raw_text = clean_plain_text(text)
+    if not raw_text:
+        return fallback
 
-    lines = [line.strip() for line in clean_text.splitlines() if line.strip()]
+    lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
     if not lines:
-        return f"- {fallback}"
+        return fallback
 
-    bulleted_lines: List[str] = []
+    cleaned_items = []
     for line in lines:
-        if line.startswith(("- ", "* ", "+ ", "• ")):
-            clean_item = line[2:].strip()
-        elif line.startswith(("-", "*", "+", "•")):
-            clean_item = line[1:].strip()
-        else:
-            clean_item = line
+        clean = re.sub(r"^(?:[-*+•]|\d+[.)])\s*", "", line).strip()
+        if clean and clean.lower().rstrip(".") not in ("none", "none identified"):
+            cleaned_items.append(clean)
 
-        if clean_item:
-            bulleted_lines.append(f"- {clean_item}")
+    if not cleaned_items:
+        return fallback
 
-    if not bulleted_lines:
-        return f"- {fallback}"
+    return "\n".join(f"{idx}. {item}" for idx, item in enumerate(cleaned_items, start=1))
 
-    return "\n".join(bulleted_lines)
+
+def ensure_bullet_points(text: Any, fallback: str = "None identified") -> str:
+    """Legacy helper for backward compatibility - delegates to ensure_numbered_list."""
+    return ensure_numbered_list(text, fallback=fallback)
 
 
 class GeneratedTask(BaseModel):
@@ -63,7 +92,7 @@ class GeneratedTask(BaseModel):
     objective: str = Field(..., description="What this task accomplishes")
     scope: str = Field(..., description="Specific implementation responsibilities")
     expected_behavior: str = Field(..., description="Expected system behavior")
-    dependencies: str = Field(default="None identified", description="Dependencies or None identified")
+    dependencies: str = Field(default="None identified.", description="Dependencies or None identified.")
     testing_considerations: Optional[str] = Field(default="", description="Unit, integration, or UI test scenarios")
     acceptance_criteria: List[str] = Field(default_factory=list, description="List of acceptance criteria")
     assignee: Optional[TaskOwner] = Field(default=None, description="Story Dev Owner assigned to task")
@@ -84,22 +113,63 @@ class GeneratedTask(BaseModel):
         raise ValueError(f"Task title must start with 'FE - ' or 'BE - XX - ', got: '{clean}'")
 
     def format_description(self) -> str:
-        """Format the task description using exact four Markdown sections in order:
-        ## Objective
-        ## Scope
-        ## Expected Behavior
-        ## Dependencies
+        """Format the task description using Zoho-compatible plain text and numbered lists:
+        Objective:
+        ...
+
+        Scope:
+
+        1. ...
+        2. ...
+
+        Expected Behavior:
+
+        1. ...
+        2. ...
+
+        Dependencies:
+        None identified. (or numbered list)
+
+        Testing Considerations:
+
+        1. ...
+        2. ...
+
+        Acceptance Criteria:
+
+        1. ...
+        2. ...
         """
-        obj = self.objective.strip()
-        scope = ensure_bullet_points(self.scope, fallback="Implement requirements according to story specification.")
-        exp = ensure_bullet_points(self.expected_behavior, fallback="System behaves as defined in objective.")
-        deps = ensure_bullet_points(self.dependencies, fallback="None identified")
+        obj = clean_plain_text(self.objective)
+        scope = ensure_numbered_list(self.scope, fallback="1. Implement requirements according to story specification.")
+        exp = ensure_numbered_list(self.expected_behavior, fallback="1. System behaves as defined in objective.")
+
+        deps_raw = clean_plain_text(self.dependencies)
+        clean_deps_check = re.sub(r"^(?:[-*+•]|\d+[.)])\s*", "", deps_raw).strip()
+        if not deps_raw or clean_deps_check.lower().rstrip(".") in ("none", "none identified"):
+            deps_section = "Dependencies:\nNone identified."
+        else:
+            deps_formatted = ensure_numbered_list(self.dependencies, fallback="None identified.")
+            if deps_formatted == "None identified.":
+                deps_section = "Dependencies:\nNone identified."
+            elif deps_formatted.startswith("1. "):
+                deps_section = f"Dependencies:\n\n{deps_formatted}"
+            else:
+                deps_section = f"Dependencies:\n{deps_formatted}"
+
+        tests_fallback = "1. Verify behavior matches expected functionality.\n2. Verify edge cases and error handling."
+        tests = ensure_numbered_list(self.testing_considerations, fallback=tests_fallback)
+
+        ac_fallback = "1. Acceptance criteria defined in story specification are satisfied."
+        ac = ensure_numbered_list(self.acceptance_criteria, fallback=ac_fallback)
 
         return (
-            f"## Objective\n{obj}\n\n"
-            f"## Scope\n{scope}\n\n"
-            f"## Expected Behavior\n{exp}\n\n"
-            f"## Dependencies\n{deps}"
+            f"Objective:\n{obj}\n\n"
+            f"Scope:\n\n{scope}\n\n"
+            f"Expected Behavior:\n\n{exp}\n\n"
+            f"{deps_section}\n\n"
+            f"Testing Considerations:\n\n{tests}\n\n"
+            f"Acceptance Criteria:\n\n{ac}"
         )
 
 
@@ -111,19 +181,19 @@ class RawBackendTaskDraft(BaseModel):
     objective: str = Field(..., description="What this task accomplishes")
     scope: str = Field(default="", description="Specific scope")
     expected_behavior: str = Field(default="", description="Expected system behavior")
-    dependencies: str = Field(default="- None identified")
+    dependencies: str = Field(default="None identified.")
     testing_considerations: Optional[str] = Field(default="")
     acceptance_criteria: List[str] = Field(default_factory=list)
 
     @field_validator("expected_behavior", mode="before")
     @classmethod
     def default_expected_behavior(cls, v: Any, info: Any) -> str:
-        return str(v) if v else "- System behaves as defined in objective."
+        return str(v) if v else "1. System behaves as defined in objective."
 
     @field_validator("scope", mode="before")
     @classmethod
     def default_scope(cls, v: Any) -> str:
-        return str(v) if v else "- Implement requirements according to story specification."
+        return str(v) if v else "1. Implement requirements according to story specification."
 
 
 class RawFrontendTaskDraft(BaseModel):
@@ -133,7 +203,7 @@ class RawFrontendTaskDraft(BaseModel):
     objective: str = Field(default="", description="What this task accomplishes")
     scope: str = Field(default="", description="Specific scope")
     expected_behavior: str = Field(default="", description="Expected system behavior")
-    dependencies: str = Field(default="- None identified")
+    dependencies: str = Field(default="None identified.")
     testing_considerations: Optional[str] = Field(default="")
     acceptance_criteria: List[str] = Field(default_factory=list)
 
@@ -149,7 +219,7 @@ class RawFrontendTaskDraft(BaseModel):
                 objective=obj,
                 scope=scope,
                 expected_behavior=expected,
-                dependencies=data.get("dependencies") or "- None identified",
+                dependencies=data.get("dependencies") or "None identified.",
                 testing_considerations=data.get("testing_considerations") or "",
                 acceptance_criteria=data.get("acceptance_criteria") or [],
             )

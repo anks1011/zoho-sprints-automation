@@ -22,49 +22,93 @@ interface PageProps {
   params: Promise<{ planId: string }>;
 }
 
-function formatBulletPoints(text: string | undefined | null, fallback = "None identified"): string {
-  if (!text || !text.trim()) return `- ${fallback}`;
-  const lines = text
-    .trim()
+function cleanPlainText(text: string | undefined | null): string {
+  if (!text) return "";
+  return text
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/__([^_]+)__/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(/_([^_]+)_/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/^#{1,6}\s*/gm, "")
+    .trim();
+}
+
+function formatNumberedList(text: string | string[] | undefined | null, fallback = "None identified."): string {
+  if (!text) return fallback;
+  if (Array.isArray(text)) {
+    const cleaned = text
+      .map((t) => cleanPlainText(t))
+      .filter(Boolean)
+      .map((l) => l.replace(/^(?:[-*+•]|\d+[.)])\s*/, "").trim())
+      .filter(Boolean);
+    if (!cleaned.length) return fallback;
+    return cleaned.map((item, idx) => `${idx + 1}. ${item}`).join("\n");
+  }
+  const raw = cleanPlainText(text);
+  if (!raw || raw.toLowerCase().replace(/\.$/, "") === "none" || raw.toLowerCase().replace(/\.$/, "") === "none identified") {
+    return fallback;
+  }
+  const lines = raw
     .split("\n")
     .map((l) => l.trim())
     .filter(Boolean);
-  if (!lines.length) return `- ${fallback}`;
-
-  return lines
-    .map((line) => {
-      const clean = line.replace(/^[-*+•]\s*/, "").trim();
-      return clean ? `- ${clean}` : "";
-    })
-    .filter(Boolean)
-    .join("\n");
+  const cleaned = lines
+    .map((l) => l.replace(/^(?:[-*+•]|\d+[.)])\s*/, "").trim())
+    .filter((l) => l && l.toLowerCase().replace(/\.$/, "") !== "none" && l.toLowerCase().replace(/\.$/, "") !== "none identified");
+  if (!cleaned.length) return fallback;
+  return cleaned.map((item, idx) => `${idx + 1}. ${item}`).join("\n");
 }
 
-function parseBulletPoints(text: string | undefined | null, fallback = "None identified"): string[] {
-  if (!text || !text.trim()) return [fallback];
-  const lines = text
-    .trim()
+function parseNumberedList(text: string | string[] | undefined | null, fallback = "None identified."): string[] {
+  if (!text) return [fallback];
+  if (Array.isArray(text)) {
+    const cleaned = text
+      .map((t) => cleanPlainText(t))
+      .filter(Boolean)
+      .map((l) => l.replace(/^(?:[-*+•]|\d+[.)])\s*/, "").trim())
+      .filter((l) => l && l.toLowerCase().replace(/\.$/, "") !== "none" && l.toLowerCase().replace(/\.$/, "") !== "none identified");
+    return cleaned.length > 0 ? cleaned : [fallback];
+  }
+  const raw = cleanPlainText(text);
+  if (!raw) return [fallback];
+  const lines = raw
     .split("\n")
     .map((l) => l.trim())
     .filter(Boolean);
   if (!lines.length) return [fallback];
-
-  const parsed = lines
-    .map((line) => line.replace(/^[-*+•]\s*/, "").trim())
-    .filter(Boolean);
-  return parsed.length > 0 ? parsed : [fallback];
+  const cleaned = lines
+    .map((l) => l.replace(/^(?:[-*+•]|\d+[.)])\s*/, "").trim())
+    .filter((l) => l && l.toLowerCase().replace(/\.$/, "") !== "none" && l.toLowerCase().replace(/\.$/, "") !== "none identified");
+  return cleaned.length > 0 ? cleaned : [fallback];
 }
 
-function buildTaskMarkdown(task: GeneratedTask): string {
-  if (task.description && task.description.includes("## Objective")) {
+function buildTaskDescription(task: GeneratedTask): string {
+  if (task.description && task.description.startsWith("Objective:") && !task.description.includes("## Objective")) {
     return task.description;
   }
-  const obj = (task.objective || "").trim();
-  const scope = formatBulletPoints(task.scope, "Implement requirements according to story specification.");
-  const exp = formatBulletPoints(task.expected_behavior, "System behaves as defined in objective.");
-  const deps = formatBulletPoints(task.dependencies, "None identified");
+  const obj = cleanPlainText(task.objective);
+  const scope = formatNumberedList(task.scope, "1. Implement requirements according to story specification.");
+  const exp = formatNumberedList(task.expected_behavior, "1. System behaves as defined in objective.");
 
-  return `## Objective\n${obj}\n\n## Scope\n${scope}\n\n## Expected Behavior\n${exp}\n\n## Dependencies\n${deps}`;
+  const depsRaw = cleanPlainText(task.dependencies);
+  const cleanDepsCheck = depsRaw.replace(/^(?:[-*+•]|\d+[.)])\s*/, "").trim();
+  let depsSection = "Dependencies:\nNone identified.";
+  if (depsRaw && cleanDepsCheck.toLowerCase().replace(/\.$/, "") !== "none" && cleanDepsCheck.toLowerCase().replace(/\.$/, "") !== "none identified") {
+    const depsFormatted = formatNumberedList(task.dependencies, "None identified.");
+    if (depsFormatted === "None identified.") {
+      depsSection = "Dependencies:\nNone identified.";
+    } else if (depsFormatted.startsWith("1. ")) {
+      depsSection = `Dependencies:\n\n${depsFormatted}`;
+    } else {
+      depsSection = `Dependencies:\n${depsFormatted}`;
+    }
+  }
+
+  const tests = formatNumberedList(task.testing_considerations, "1. Verify behavior matches expected functionality.\n2. Verify edge cases and error handling.");
+  const ac = formatNumberedList(task.acceptance_criteria, "1. Acceptance criteria defined in story specification are satisfied.");
+
+  return `Objective:\n${obj}\n\nScope:\n\n${scope}\n\nExpected Behavior:\n\n${exp}\n\n${depsSection}\n\nTesting Considerations:\n\n${tests}\n\nAcceptance Criteria:\n\n${ac}`;
 }
 
 export default function PlanReviewPage({ params }: PageProps) {
@@ -186,12 +230,14 @@ export default function PlanReviewPage({ params }: PageProps) {
 
     const normalizedTasks = tasks.map((t) => ({
       ...t,
-      objective: t.objective.trim(),
-      scope: formatBulletPoints(t.scope, "Implement requirements according to story specification."),
-      expected_behavior: formatBulletPoints(t.expected_behavior, "System behaves as defined in objective."),
-      dependencies: formatBulletPoints(t.dependencies, "None identified"),
-      testing_considerations: "",
-      acceptance_criteria: [],
+      objective: cleanPlainText(t.objective),
+      scope: formatNumberedList(t.scope, "1. Implement requirements according to story specification."),
+      expected_behavior: formatNumberedList(t.expected_behavior, "1. System behaves as defined in objective."),
+      dependencies: formatNumberedList(t.dependencies, "None identified."),
+      testing_considerations: formatNumberedList(t.testing_considerations, "1. Verify behavior matches expected functionality.\n2. Verify edge cases and error handling."),
+      acceptance_criteria: Array.isArray(t.acceptance_criteria)
+        ? t.acceptance_criteria
+        : parseNumberedList(t.acceptance_criteria, "1. Acceptance criteria defined in story specification are satisfied."),
     }));
 
     try {
@@ -855,7 +901,7 @@ export default function PlanReviewPage({ params }: PageProps) {
             (w) => w.generated_title.toLowerCase().trim() === task.title.toLowerCase().trim()
           );
           const currentMode = taskViewModes[task.id] || globalMode;
-          const taskMarkdown = buildTaskMarkdown(task);
+          const taskDescription = buildTaskDescription(task);
 
           return (
             <div
@@ -906,7 +952,7 @@ export default function PlanReviewPage({ params }: PageProps) {
                         border: "none",
                         borderRadius: "4px",
                       }}
-                      title="View formatted Markdown structure"
+                      title="View formatted structure"
                     >
                       👁️ Formatted
                     </button>
@@ -922,9 +968,9 @@ export default function PlanReviewPage({ params }: PageProps) {
                         border: "none",
                         borderRadius: "4px",
                       }}
-                      title="View raw Markdown syntax"
+                      title="View plain text for Zoho Sprints"
                     >
-                      📝 Markdown
+                      📝 Plain Text
                     </button>
                     <button
                       onClick={() => setTaskViewModes((prev) => ({ ...prev, [task.id]: "edit" }))}
@@ -944,18 +990,18 @@ export default function PlanReviewPage({ params }: PageProps) {
                     </button>
                   </div>
 
-                  {/* Copy Markdown Button */}
+                  {/* Copy Description Button */}
                   <button
                     onClick={() => {
-                      navigator.clipboard.writeText(taskMarkdown);
+                      navigator.clipboard.writeText(taskDescription);
                       setCopiedTaskId(task.id);
                       setTimeout(() => setCopiedTaskId(null), 2000);
                     }}
                     className="btn btn-secondary"
                     style={{ padding: "4px 10px", fontSize: "11px" }}
-                    title="Copy task Markdown to clipboard"
+                    title="Copy task description to clipboard"
                   >
-                    {copiedTaskId === task.id ? "✓ Copied!" : "📋 Copy Markdown"}
+                    {copiedTaskId === task.id ? "✓ Copied!" : "📋 Copy Description"}
                   </button>
 
                   {/* Delete Button */}
@@ -1017,86 +1063,110 @@ export default function PlanReviewPage({ params }: PageProps) {
                 </div>
               </div>
 
-              {/* RENDER MODE 1: Formatted Markdown Viewer (Rich visual structure) */}
+              {/* RENDER MODE 1: Formatted Viewer (6 clean sections with numbered lists) */}
               {currentMode === "rendered" && (
                 <div>
                   <div style={{ fontSize: "16px", fontWeight: "700", color: isFE ? "#818cf8" : "#c084fc", marginBottom: "18px" }}>
                     {task.title}
                   </div>
 
-                  {/* Section 1: ## Objective */}
+                  {/* Section 1: Objective: */}
                   <div style={{ marginBottom: "16px" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "6px" }}>
-                      <span style={{ fontSize: "12px", fontFamily: "var(--font-mono)", fontWeight: "700", color: "var(--accent-primary)" }}>##</span>
-                      <h3 style={{ fontSize: "13px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.05em", color: "#e2e8f0" }}>
-                        Objective
-                      </h3>
-                    </div>
+                    <h3 style={{ fontSize: "13px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.05em", color: "#e2e8f0", marginBottom: "6px" }}>
+                      Objective:
+                    </h3>
                     <p style={{ fontSize: "13.5px", color: "var(--text-primary)", lineHeight: "1.6", background: "rgba(255, 255, 255, 0.02)", padding: "10px 14px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)" }}>
-                      {task.objective || "No objective defined."}
+                      {cleanPlainText(task.objective) || "No objective defined."}
                     </p>
                   </div>
 
-                  {/* Section 2: ## Scope */}
+                  {/* Section 2: Scope: */}
                   <div style={{ marginBottom: "16px" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "6px" }}>
-                      <span style={{ fontSize: "12px", fontFamily: "var(--font-mono)", fontWeight: "700", color: "var(--accent-primary)" }}>##</span>
-                      <h3 style={{ fontSize: "13px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.05em", color: "#e2e8f0" }}>
-                        Scope
-                      </h3>
-                    </div>
+                    <h3 style={{ fontSize: "13px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.05em", color: "#e2e8f0", marginBottom: "6px" }}>
+                      Scope:
+                    </h3>
                     <div style={{ background: "rgba(255, 255, 255, 0.02)", padding: "10px 14px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)" }}>
-                      <ul style={{ margin: 0, paddingLeft: "18px", display: "flex", flexDirection: "column", gap: "6px" }}>
-                        {parseBulletPoints(task.scope).map((bullet, bIdx) => (
+                      <ol style={{ margin: 0, paddingLeft: "20px", display: "flex", flexDirection: "column", gap: "6px" }}>
+                        {parseNumberedList(task.scope).map((item, bIdx) => (
                           <li key={bIdx} style={{ fontSize: "13px", color: "var(--text-primary)", lineHeight: "1.5" }}>
-                            {bullet}
+                            {item}
                           </li>
                         ))}
-                      </ul>
+                      </ol>
                     </div>
                   </div>
 
-                  {/* Section 3: ## Expected Behavior */}
+                  {/* Section 3: Expected Behavior: */}
                   <div style={{ marginBottom: "16px" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "6px" }}>
-                      <span style={{ fontSize: "12px", fontFamily: "var(--font-mono)", fontWeight: "700", color: "var(--accent-primary)" }}>##</span>
-                      <h3 style={{ fontSize: "13px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.05em", color: "#e2e8f0" }}>
-                        Expected Behavior
-                      </h3>
-                    </div>
+                    <h3 style={{ fontSize: "13px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.05em", color: "#e2e8f0", marginBottom: "6px" }}>
+                      Expected Behavior:
+                    </h3>
                     <div style={{ background: "rgba(255, 255, 255, 0.02)", padding: "10px 14px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)" }}>
-                      <ul style={{ margin: 0, paddingLeft: "18px", display: "flex", flexDirection: "column", gap: "6px" }}>
-                        {parseBulletPoints(task.expected_behavior).map((bullet, bIdx) => (
+                      <ol style={{ margin: 0, paddingLeft: "20px", display: "flex", flexDirection: "column", gap: "6px" }}>
+                        {parseNumberedList(task.expected_behavior).map((item, bIdx) => (
                           <li key={bIdx} style={{ fontSize: "13px", color: "var(--text-primary)", lineHeight: "1.5" }}>
-                            {bullet}
+                            {item}
                           </li>
                         ))}
-                      </ul>
+                      </ol>
                     </div>
                   </div>
 
-                  {/* Section 4: ## Dependencies */}
+                  {/* Section 4: Dependencies: */}
+                  <div style={{ marginBottom: "16px" }}>
+                    <h3 style={{ fontSize: "13px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.05em", color: "#e2e8f0", marginBottom: "6px" }}>
+                      Dependencies:
+                    </h3>
+                    <div style={{ background: "rgba(255, 255, 255, 0.02)", padding: "10px 14px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)" }}>
+                      {parseNumberedList(task.dependencies, "None identified.").length === 1 && parseNumberedList(task.dependencies, "None identified.")[0] === "None identified." ? (
+                        <p style={{ margin: 0, fontSize: "13px", color: "var(--text-muted)" }}>None identified.</p>
+                      ) : (
+                        <ol style={{ margin: 0, paddingLeft: "20px", display: "flex", flexDirection: "column", gap: "6px" }}>
+                          {parseNumberedList(task.dependencies, "None identified.").map((item, bIdx) => (
+                            <li key={bIdx} style={{ fontSize: "13px", color: "var(--text-primary)", lineHeight: "1.5" }}>
+                              {item}
+                            </li>
+                          ))}
+                        </ol>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Section 5: Testing Considerations: */}
+                  <div style={{ marginBottom: "16px" }}>
+                    <h3 style={{ fontSize: "13px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.05em", color: "#e2e8f0", marginBottom: "6px" }}>
+                      Testing Considerations:
+                    </h3>
+                    <div style={{ background: "rgba(255, 255, 255, 0.02)", padding: "10px 14px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)" }}>
+                      <ol style={{ margin: 0, paddingLeft: "20px", display: "flex", flexDirection: "column", gap: "6px" }}>
+                        {parseNumberedList(task.testing_considerations, "1. Verify behavior matches expected functionality.\n2. Verify edge cases and error handling.").map((item, bIdx) => (
+                          <li key={bIdx} style={{ fontSize: "13px", color: "var(--text-primary)", lineHeight: "1.5" }}>
+                            {item}
+                          </li>
+                        ))}
+                      </ol>
+                    </div>
+                  </div>
+
+                  {/* Section 6: Acceptance Criteria: */}
                   <div>
-                    <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "6px" }}>
-                      <span style={{ fontSize: "12px", fontFamily: "var(--font-mono)", fontWeight: "700", color: "var(--accent-primary)" }}>##</span>
-                      <h3 style={{ fontSize: "13px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.05em", color: "#e2e8f0" }}>
-                        Dependencies
-                      </h3>
-                    </div>
+                    <h3 style={{ fontSize: "13px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.05em", color: "#e2e8f0", marginBottom: "6px" }}>
+                      Acceptance Criteria:
+                    </h3>
                     <div style={{ background: "rgba(255, 255, 255, 0.02)", padding: "10px 14px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)" }}>
-                      <ul style={{ margin: 0, paddingLeft: "18px", display: "flex", flexDirection: "column", gap: "6px" }}>
-                        {parseBulletPoints(task.dependencies, "None identified").map((bullet, bIdx) => (
+                      <ol style={{ margin: 0, paddingLeft: "20px", display: "flex", flexDirection: "column", gap: "6px" }}>
+                        {parseNumberedList(task.acceptance_criteria, "1. Acceptance criteria defined in story specification are satisfied.").map((item, bIdx) => (
                           <li key={bIdx} style={{ fontSize: "13px", color: "var(--text-primary)", lineHeight: "1.5" }}>
-                            {bullet}
+                            {item}
                           </li>
                         ))}
-                      </ul>
+                      </ol>
                     </div>
                   </div>
                 </div>
               )}
 
-              {/* RENDER MODE 2: Raw Markdown View */}
+              {/* RENDER MODE 2: Raw Zoho Plain Text View */}
               {currentMode === "raw" && (
                 <div>
                   <div style={{ fontSize: "16px", fontWeight: "700", color: isFE ? "#818cf8" : "#c084fc", marginBottom: "12px" }}>
@@ -1116,7 +1186,7 @@ export default function PlanReviewPage({ params }: PageProps) {
                       wordBreak: "break-word",
                     }}
                   >
-                    {taskMarkdown}
+                    {taskDescription}
                   </pre>
                 </div>
               )}
@@ -1161,14 +1231,14 @@ export default function PlanReviewPage({ params }: PageProps) {
 
                     <div>
                       <label style={{ display: "block", fontSize: "12px", fontWeight: "600", color: "var(--text-muted)", marginBottom: "6px" }}>
-                        SCOPE (Bullet points)
+                        SCOPE (Numbered list)
                       </label>
                       <textarea
                         className="input"
                         rows={4}
                         value={task.scope}
                         onChange={(e) => handleTaskChange(task.id, "scope", e.target.value)}
-                        placeholder="- Implement work item 1&#10;- Implement work item 2"
+                        placeholder="1. Implement work item 1&#10;2. Implement work item 2"
                         style={{ resize: "vertical", fontSize: "13px", lineHeight: "1.5" }}
                       />
                     </div>
@@ -1178,28 +1248,59 @@ export default function PlanReviewPage({ params }: PageProps) {
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "16px" }}>
                     <div>
                       <label style={{ display: "block", fontSize: "12px", fontWeight: "600", color: "var(--text-muted)", marginBottom: "6px" }}>
-                        EXPECTED BEHAVIOR (Bullet points)
+                        EXPECTED BEHAVIOR (Numbered list)
                       </label>
                       <textarea
                         className="input"
                         rows={4}
                         value={task.expected_behavior}
                         onChange={(e) => handleTaskChange(task.id, "expected_behavior", e.target.value)}
-                        placeholder="- User action produces expected result&#10;- Edge case handled correctly"
+                        placeholder="1. User action produces expected result&#10;2. Edge case handled correctly"
                         style={{ resize: "vertical", fontSize: "13px", lineHeight: "1.5" }}
                       />
                     </div>
 
                     <div>
                       <label style={{ display: "block", fontSize: "12px", fontWeight: "600", color: "var(--text-muted)", marginBottom: "6px" }}>
-                        DEPENDENCIES (Bullet points)
+                        DEPENDENCIES
                       </label>
                       <textarea
                         className="input"
                         rows={4}
                         value={task.dependencies}
                         onChange={(e) => handleTaskChange(task.id, "dependencies", e.target.value)}
-                        placeholder="- Upstream API service&#10;- Configuration flag"
+                        placeholder="None identified."
+                        style={{ resize: "vertical", fontSize: "13px", lineHeight: "1.5" }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* 2-Column Grid for Testing Considerations & Acceptance Criteria */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "16px" }}>
+                    <div>
+                      <label style={{ display: "block", fontSize: "12px", fontWeight: "600", color: "var(--text-muted)", marginBottom: "6px" }}>
+                        TESTING CONSIDERATIONS (Numbered list)
+                      </label>
+                      <textarea
+                        className="input"
+                        rows={4}
+                        value={task.testing_considerations || ""}
+                        onChange={(e) => handleTaskChange(task.id, "testing_considerations", e.target.value)}
+                        placeholder="1. Verify behavior matches expected functionality&#10;2. Verify edge cases"
+                        style={{ resize: "vertical", fontSize: "13px", lineHeight: "1.5" }}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ display: "block", fontSize: "12px", fontWeight: "600", color: "var(--text-muted)", marginBottom: "6px" }}>
+                        ACCEPTANCE CRITERIA (Numbered list)
+                      </label>
+                      <textarea
+                        className="input"
+                        rows={4}
+                        value={Array.isArray(task.acceptance_criteria) ? task.acceptance_criteria.join("\n") : (task.acceptance_criteria || "")}
+                        onChange={(e) => handleTaskChange(task.id, "acceptance_criteria", e.target.value.split("\n"))}
+                        placeholder="1. Acceptance criterion 1&#10;2. Acceptance criterion 2"
                         style={{ resize: "vertical", fontSize: "13px", lineHeight: "1.5" }}
                       />
                     </div>
@@ -1212,7 +1313,7 @@ export default function PlanReviewPage({ params }: PageProps) {
                       className="btn btn-secondary"
                       style={{ fontSize: "12px", padding: "6px 12px" }}
                     >
-                      Done Editing (Preview Markdown) →
+                      Done Editing (Preview Zoho Format) →
                     </button>
                   </div>
                 </div>
