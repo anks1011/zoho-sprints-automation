@@ -102,8 +102,9 @@ class GeneratedTaskSchema(BaseModel):
     objective: str
     scope: str
     expected_behavior: str
-    dependencies: str = "None identified"
-    testing_considerations: str
+    dependencies: str = "- None identified"
+    description: Optional[str] = None
+    testing_considerations: Optional[str] = ""
     acceptance_criteria: List[str] = Field(default_factory=list)
     assignee: Optional[TaskOwnerSchema] = None
     qa_owner: Optional[TaskOwnerSchema] = None

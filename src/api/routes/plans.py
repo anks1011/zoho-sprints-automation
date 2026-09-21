@@ -31,7 +31,7 @@ from src.services.plan_store import PlanStore
 from src.services.story_service import StoryService, StoryServiceError
 from src.services.task_creator import TaskCreator
 from src.services.task_generator import TaskGenerationError, TaskGenerator
-from src.services.task_models import GeneratedTask, GeneratedTaskPlan, TaskOwner
+from src.services.task_models import GeneratedTask, GeneratedTaskPlan, TaskOwner, ensure_bullet_points
 
 logger = logging.getLogger(__name__)
 
@@ -78,8 +78,9 @@ def _to_plan_response(
             scope=t.scope,
             expected_behavior=t.expected_behavior,
             dependencies=t.dependencies,
-            testing_considerations=t.testing_considerations,
-            acceptance_criteria=t.acceptance_criteria,
+            description=t.format_description(),
+            testing_considerations=t.testing_considerations or "",
+            acceptance_criteria=t.acceptance_criteria or [],
             assignee=TaskOwnerSchema(
                 user_id=t.assignee.user_id,
                 display_name=t.assignee.display_name,
@@ -349,12 +350,12 @@ def update_plan(
             title=t_item.title,
             task_type=t_item.task_type,
             index=t_item.index,
-            objective=t_item.objective,
-            scope=t_item.scope,
-            expected_behavior=t_item.expected_behavior,
-            dependencies=t_item.dependencies,
-            testing_considerations=t_item.testing_considerations,
-            acceptance_criteria=t_item.acceptance_criteria,
+            objective=t_item.objective.strip(),
+            scope=ensure_bullet_points(t_item.scope, fallback="Implement requirements according to story specification."),
+            expected_behavior=ensure_bullet_points(t_item.expected_behavior, fallback="System behaves as defined in objective."),
+            dependencies=ensure_bullet_points(t_item.dependencies, fallback="None identified"),
+            testing_considerations="",
+            acceptance_criteria=[],
             assignee=assignee,
             qa_owner=qa_owner,
         )

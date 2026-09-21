@@ -16,6 +16,43 @@ class TaskOwner(BaseModel):
     email: Optional[str] = None
 
 
+def ensure_bullet_points(text: Any, fallback: str = "None identified") -> str:
+    """Ensure that text is formatted as markdown bullet points, each starting with '- '."""
+    if not text:
+        return f"- {fallback}"
+
+    if isinstance(text, list):
+        items = [str(item).strip() for item in text if str(item).strip()]
+        if not items:
+            return f"- {fallback}"
+        return "\n".join(f"- {item.lstrip('- *•+').strip()}" for item in items if item.lstrip("- *•+").strip())
+
+    clean_text = str(text).strip()
+    if not clean_text:
+        return f"- {fallback}"
+
+    lines = [line.strip() for line in clean_text.splitlines() if line.strip()]
+    if not lines:
+        return f"- {fallback}"
+
+    bulleted_lines: List[str] = []
+    for line in lines:
+        if line.startswith(("- ", "* ", "+ ", "• ")):
+            clean_item = line[2:].strip()
+        elif line.startswith(("-", "*", "+", "•")):
+            clean_item = line[1:].strip()
+        else:
+            clean_item = line
+
+        if clean_item:
+            bulleted_lines.append(f"- {clean_item}")
+
+    if not bulleted_lines:
+        return f"- {fallback}"
+
+    return "\n".join(bulleted_lines)
+
+
 class GeneratedTask(BaseModel):
     """Represents a generated task before creation in Zoho Sprints."""
 
@@ -47,21 +84,23 @@ class GeneratedTask(BaseModel):
         raise ValueError(f"Task title must start with 'FE - ' or 'BE - XX - ', got: '{clean}'")
 
     def format_description(self) -> str:
-        """Format the task description."""
-        parts = [
-            f"Objective:\n{self.objective.strip()}",
-            f"Scope:\n{self.scope.strip()}",
-            f"Expected behavior:\n{self.expected_behavior.strip()}",
-            f"Dependencies:\n{self.dependencies.strip()}",
-        ]
-        if self.testing_considerations and self.testing_considerations.strip():
-            parts.append(f"Testing considerations:\n{self.testing_considerations.strip()}")
-        if self.acceptance_criteria:
-            ac_lines = "\n".join(f"- {ac.lstrip('- ').strip()}" for ac in self.acceptance_criteria if ac.strip())
-            if ac_lines:
-                parts.append(f"Acceptance criteria:\n{ac_lines}")
+        """Format the task description using exact four Markdown sections in order:
+        ## Objective
+        ## Scope
+        ## Expected Behavior
+        ## Dependencies
+        """
+        obj = self.objective.strip()
+        scope = ensure_bullet_points(self.scope, fallback="Implement requirements according to story specification.")
+        exp = ensure_bullet_points(self.expected_behavior, fallback="System behaves as defined in objective.")
+        deps = ensure_bullet_points(self.dependencies, fallback="None identified")
 
-        return "\n\n".join(parts)
+        return (
+            f"## Objective\n{obj}\n\n"
+            f"## Scope\n{scope}\n\n"
+            f"## Expected Behavior\n{exp}\n\n"
+            f"## Dependencies\n{deps}"
+        )
 
 
 class RawBackendTaskDraft(BaseModel):
@@ -72,19 +111,19 @@ class RawBackendTaskDraft(BaseModel):
     objective: str = Field(..., description="What this task accomplishes")
     scope: str = Field(default="", description="Specific scope")
     expected_behavior: str = Field(default="", description="Expected system behavior")
-    dependencies: str = Field(default="None identified")
-    testing_considerations: str = Field(default="Unit and integration tests")
+    dependencies: str = Field(default="- None identified")
+    testing_considerations: Optional[str] = Field(default="")
     acceptance_criteria: List[str] = Field(default_factory=list)
 
     @field_validator("expected_behavior", mode="before")
     @classmethod
     def default_expected_behavior(cls, v: Any, info: Any) -> str:
-        return str(v) if v else "System behaves as defined in objective."
+        return str(v) if v else "- System behaves as defined in objective."
 
     @field_validator("scope", mode="before")
     @classmethod
     def default_scope(cls, v: Any) -> str:
-        return str(v) if v else "Implement requirements according to story specification."
+        return str(v) if v else "- Implement requirements according to story specification."
 
 
 class RawFrontendTaskDraft(BaseModel):
@@ -94,8 +133,8 @@ class RawFrontendTaskDraft(BaseModel):
     objective: str = Field(default="", description="What this task accomplishes")
     scope: str = Field(default="", description="Specific scope")
     expected_behavior: str = Field(default="", description="Expected system behavior")
-    dependencies: str = Field(default="None identified")
-    testing_considerations: str = Field(default="UI component and validation tests")
+    dependencies: str = Field(default="- None identified")
+    testing_considerations: Optional[str] = Field(default="")
     acceptance_criteria: List[str] = Field(default_factory=list)
 
     @classmethod
@@ -105,16 +144,14 @@ class RawFrontendTaskDraft(BaseModel):
             title = data.get("title_suffix") or data.get("title") or "Implement User Interface and Client Flow"
             scope = data.get("scope") or obj
             expected = data.get("expected_behavior") or obj
-            tests = data.get("testing_considerations") or "Unit tests for UI components and form validation"
-            ac = data.get("acceptance_criteria") or []
             return cls(
                 title_suffix=title,
                 objective=obj,
                 scope=scope,
                 expected_behavior=expected,
-                dependencies=data.get("dependencies") or "None identified",
-                testing_considerations=tests,
-                acceptance_criteria=ac,
+                dependencies=data.get("dependencies") or "- None identified",
+                testing_considerations=data.get("testing_considerations") or "",
+                acceptance_criteria=data.get("acceptance_criteria") or [],
             )
         return cls(title_suffix="Implement User Interface", objective=str(data), scope=str(data), expected_behavior=str(data))
 

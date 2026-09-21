@@ -38,16 +38,16 @@ STRICT CONSTRAINTS & ARCHITECTURAL GUIDELINES:
    - If backend work is required:
      * Generate justified, sequential backend task drafts (`backend_tasks`) broken down cleanly by technical domain / responsibility (e.g. BE - 01 for Template Schema and Column Resolution API, BE - 02 for Layout Configuration and Table-Section Validation Service).
      * Do not create artificial tasks just to inflate task counts, but do not lump disparate backend responsibilities into a single oversized task when distinct architectural boundaries exist.
-5. Drafting Content:
-   - For every task (FE and each BE), explain clearly in the objective and scope why the task is required.
-   - Provide complete, detailed contents for all 6 required sections for each task:
-     * title_suffix: Clear, professional title describing the work (e.g., "Implement Sample CSV Template Download UI and Wizard Step 2 Integration", "Implement Pre-Admissions CSV Template Schema and Column Resolution API").
-     * objective: Concise statement of what this task accomplishes and why it is required.
-     * scope: Specific implementation responsibilities, components affected, data structures, and edge cases.
-     * expected_behavior: Clear description of expected system behavior under normal and failure/edge conditions.
-     * dependencies: Real prerequisites, upstream APIs, layout services, or permissions.
-     * testing_considerations: Concrete unit, integration, and UI testing scenarios.
-     * acceptance_criteria: Verifiable, bulleted acceptance criteria matching the story's scenarios.
+5. Task Content Structure & Formatting (MANDATORY):
+   - For every task (FE and each BE), provide complete, detailed contents strictly adhering to these 4 sections:
+     * title_suffix: Clear, professional title describing the work.
+     * objective: A clear and concise description of what this task accomplishes and why it is required (as a concise paragraph).
+     * scope: Specific implementation responsibilities and components affected. MUST use bullet points (each line starting with '- ').
+     * expected_behavior: Clear description of expected system behavior under normal and failure/edge conditions. MUST use bullet points (each line starting with '- ').
+     * dependencies: Required services, configurations, permissions, APIs, or other dependencies. MUST use bullet points (each line starting with '- '). If none, use '- None identified'.
+   - DO NOT include or generate any 'Testing Considerations' section.
+   - DO NOT include or generate any 'Acceptance Criteria' section.
+   - Keep content specific to the task. Do NOT generate scope, expected behavior, or dependencies as plain paragraphs; format them with bullet points.
 6. If the story description is short, ambiguous, or missing crucial specifications, explicitly list the ambiguities in the `ambiguities` array.
 7. Output MUST be valid JSON adhering strictly to the provided schema.
 """
@@ -129,23 +129,19 @@ class AIStoryAnalyzer:
             f'  "assumptions": ["string"],\n'
             f'  "frontend_task": {{\n'
             f'    "title_suffix": "string (clear title describing UI work)",\n'
-            f'    "objective": "string",\n'
-            f'    "scope": "string",\n'
-            f'    "expected_behavior": "string",\n'
-            f'    "dependencies": "string",\n'
-            f'    "testing_considerations": "string",\n'
-            f'    "acceptance_criteria": ["string"]\n'
+            f'    "objective": "string (concise paragraph)",\n'
+            f'    "scope": "- Bullet 1\\n- Bullet 2",\n'
+            f'    "expected_behavior": "- Bullet 1\\n- Bullet 2",\n'
+            f'    "dependencies": "- None identified or - Service/API dependency"\n'
             f'  }} or null,\n'
             f'  "backend_tasks": [\n'
             f'    {{\n'
             f'      "boundary": "API/DB/Logic/Worker",\n'
             f'      "title_suffix": "string (clear title describing backend work)",\n'
-            f'      "objective": "string",\n'
-            f'      "scope": "string",\n'
-            f'      "expected_behavior": "string",\n'
-            f'      "dependencies": "string",\n'
-            f'      "testing_considerations": "string",\n'
-            f'      "acceptance_criteria": ["string"]\n'
+            f'      "objective": "string (concise paragraph)",\n'
+            f'      "scope": "- Bullet 1\\n- Bullet 2",\n'
+            f'      "expected_behavior": "- Bullet 1\\n- Bullet 2",\n'
+            f'      "dependencies": "- None identified or - Service/API dependency"\n'
             f'    }}\n'
             f'  ]\n'
             f"}}"

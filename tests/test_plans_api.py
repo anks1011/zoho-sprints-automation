@@ -231,6 +231,28 @@ def test_update_plan_success(sample_plan: GeneratedTaskPlan) -> None:
         assert data["story_summary"] == "Updated story summary"
         assert data["updated_at"] is not None
         mock_plan_store.save_plan.assert_called_once()
+
+        # Verify four-section format is preserved on edit and save
+        desc = data["tasks"][0]["description"]
+        assert "## Objective" in desc
+        assert "## Scope" in desc
+        assert "## Expected Behavior" in desc
+        assert "## Dependencies" in desc
+
+        obj_idx = desc.index("## Objective")
+        scope_idx = desc.index("## Scope")
+        exp_idx = desc.index("## Expected Behavior")
+        deps_idx = desc.index("## Dependencies")
+        assert obj_idx < scope_idx < exp_idx < deps_idx
+
+        assert "Testing Considerations" not in desc
+        assert "Testing considerations" not in desc
+        assert "Acceptance Criteria" not in desc
+        assert "Acceptance criteria" not in desc
+
+        assert "- Revised scope text." in desc
+        assert "- Revised expected behavior." in desc
+        assert "- BE - 02 Layout validation" in desc
     finally:
         app.dependency_overrides.clear()
 

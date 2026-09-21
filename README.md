@@ -358,26 +358,21 @@ The tool checks the execution record, skips all tasks already marked `CREATED`, 
   - Split along architectural boundaries (API contracts, DB migrations, business logic, asynchronous workers).
 
 ### Description Structure
-Every generated subtask includes all 6 mandatory sections:
-```text
-Objective:
-<What this task accomplishes>
+Every generated subtask includes 4 mandatory Markdown sections in exact order:
+```markdown
+## Objective
+A clear and concise description of the task objective.
 
-Scope:
-<Specific implementation responsibilities>
+## Scope
+- Specific implementation responsibility 1
+- Specific implementation responsibility 2
 
-Expected behavior:
-<Expected system behavior>
+## Expected Behavior
+- Expected system behavior under normal conditions
+- Expected system behavior under failure/edge conditions
 
-Dependencies:
-<Relevant dependencies or "None identified">
-
-Testing considerations:
-<Relevant unit, integration, API, or UI tests>
-
-Acceptance criteria:
-- <Criterion 1>
-- <Criterion 2>
+## Dependencies
+- Required services, configurations, permissions, APIs, or None identified
 ```
 
 ---

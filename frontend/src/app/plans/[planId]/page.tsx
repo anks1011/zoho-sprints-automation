@@ -22,6 +22,51 @@ interface PageProps {
   params: Promise<{ planId: string }>;
 }
 
+function formatBulletPoints(text: string | undefined | null, fallback = "None identified"): string {
+  if (!text || !text.trim()) return `- ${fallback}`;
+  const lines = text
+    .trim()
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (!lines.length) return `- ${fallback}`;
+
+  return lines
+    .map((line) => {
+      const clean = line.replace(/^[-*+•]\s*/, "").trim();
+      return clean ? `- ${clean}` : "";
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
+function parseBulletPoints(text: string | undefined | null, fallback = "None identified"): string[] {
+  if (!text || !text.trim()) return [fallback];
+  const lines = text
+    .trim()
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (!lines.length) return [fallback];
+
+  const parsed = lines
+    .map((line) => line.replace(/^[-*+•]\s*/, "").trim())
+    .filter(Boolean);
+  return parsed.length > 0 ? parsed : [fallback];
+}
+
+function buildTaskMarkdown(task: GeneratedTask): string {
+  if (task.description && task.description.includes("## Objective")) {
+    return task.description;
+  }
+  const obj = (task.objective || "").trim();
+  const scope = formatBulletPoints(task.scope, "Implement requirements according to story specification.");
+  const exp = formatBulletPoints(task.expected_behavior, "System behaves as defined in objective.");
+  const deps = formatBulletPoints(task.dependencies, "None identified");
+
+  return `## Objective\n${obj}\n\n## Scope\n${scope}\n\n## Expected Behavior\n${exp}\n\n## Dependencies\n${deps}`;
+}
+
 export default function PlanReviewPage({ params }: PageProps) {
   const resolvedParams = use(params);
   const planId = resolvedParams.planId;
@@ -33,6 +78,11 @@ export default function PlanReviewPage({ params }: PageProps) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
+
+  // Task Viewer & Markdown preview state
+  const [taskViewModes, setTaskViewModes] = useState<Record<string, "rendered" | "raw" | "edit">>({});
+  const [copiedTaskId, setCopiedTaskId] = useState<string | null>(null);
+  const [globalMode, setGlobalMode] = useState<"rendered" | "edit">("rendered");
 
   // Phase 3 Dry-Run & Execution State
   const [showDryRunModal, setShowDryRunModal] = useState(false);
@@ -134,8 +184,18 @@ export default function PlanReviewPage({ params }: PageProps) {
       }
     }
 
+    const normalizedTasks = tasks.map((t) => ({
+      ...t,
+      objective: t.objective.trim(),
+      scope: formatBulletPoints(t.scope, "Implement requirements according to story specification."),
+      expected_behavior: formatBulletPoints(t.expected_behavior, "System behaves as defined in objective."),
+      dependencies: formatBulletPoints(t.dependencies, "None identified"),
+      testing_considerations: "",
+      acceptance_criteria: [],
+    }));
+
     try {
-      const updated = await updatePlan(planId, { tasks });
+      const updated = await updatePlan(planId, { tasks: normalizedTasks });
       setPlan(updated);
       setTasks(JSON.parse(JSON.stringify(updated.tasks)));
       setOriginalTasks(JSON.parse(JSON.stringify(updated.tasks)));
@@ -728,7 +788,65 @@ export default function PlanReviewPage({ params }: PageProps) {
         </div>
       )}
 
-      {/* Task List (Editable Cards) */}
+      {/* Task List Header & Global View Mode Toggle */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", flexWrap: "wrap", gap: "12px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          <h2 style={{ fontSize: "18px", fontWeight: "700", color: "#ffffff" }}>
+            Generated Tasks ({tasks.length})
+          </h2>
+          <span className="badge badge-neutral" style={{ fontSize: "11px" }}>
+            Exact 4-Section Markdown: Objective · Scope · Expected Behavior · Dependencies
+          </span>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>View:</span>
+          <div style={{ display: "inline-flex", background: "rgba(255, 255, 255, 0.05)", padding: "3px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)" }}>
+            <button
+              onClick={() => {
+                setGlobalMode("rendered");
+                setTaskViewModes({});
+              }}
+              style={{
+                background: globalMode === "rendered" ? "var(--accent-primary)" : "transparent",
+                color: globalMode === "rendered" ? "#ffffff" : "var(--text-secondary)",
+                border: "none",
+                padding: "4px 10px",
+                borderRadius: "4px",
+                fontSize: "12px",
+                fontWeight: "600",
+                cursor: "pointer",
+                transition: "all 0.15s ease",
+              }}
+            >
+              👁️ Formatted Markdown
+            </button>
+            <button
+              onClick={() => {
+                setGlobalMode("edit");
+                const allEdit: Record<string, "rendered" | "raw" | "edit"> = {};
+                tasks.forEach((t) => (allEdit[t.id] = "edit"));
+                setTaskViewModes(allEdit);
+              }}
+              style={{
+                background: globalMode === "edit" ? "var(--accent-primary)" : "transparent",
+                color: globalMode === "edit" ? "#ffffff" : "var(--text-secondary)",
+                border: "none",
+                padding: "4px 10px",
+                borderRadius: "4px",
+                fontSize: "12px",
+                fontWeight: "600",
+                cursor: "pointer",
+                transition: "all 0.15s ease",
+              }}
+            >
+              ✏️ Edit Mode
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Task List (Interactive Markdown Viewer & Cards) */}
       <div style={{ display: "flex", flexDirection: "column", gap: "28px" }}>
         {tasks.map((task, idx) => {
           const isFE = task.task_type === "FE";
@@ -736,6 +854,8 @@ export default function PlanReviewPage({ params }: PageProps) {
           const matchingWarning = plan.duplicate_warnings?.find(
             (w) => w.generated_title.toLowerCase().trim() === task.title.toLowerCase().trim()
           );
+          const currentMode = taskViewModes[task.id] || globalMode;
+          const taskMarkdown = buildTaskMarkdown(task);
 
           return (
             <div
@@ -748,7 +868,7 @@ export default function PlanReviewPage({ params }: PageProps) {
             >
               {/* Task Header */}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", flexWrap: "wrap", gap: "10px" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
                   <span
                     className="badge"
                     style={{
@@ -770,19 +890,89 @@ export default function PlanReviewPage({ params }: PageProps) {
                   )}
                 </div>
 
-                <button
-                  onClick={() => handleDeleteTask(task.id)}
-                  className="btn btn-secondary"
-                  style={{
-                    padding: "4px 10px",
-                    fontSize: "12px",
-                    color: "var(--color-error)",
-                    borderColor: "rgba(239, 68, 68, 0.2)",
-                  }}
-                  title="Remove this task from plan"
-                >
-                  Delete Task
-                </button>
+                {/* Header Action Controls */}
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                  {/* Mode Toggles */}
+                  <div style={{ display: "inline-flex", background: "rgba(255, 255, 255, 0.04)", padding: "2px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)" }}>
+                    <button
+                      onClick={() => setTaskViewModes((prev) => ({ ...prev, [task.id]: "rendered" }))}
+                      className="btn"
+                      style={{
+                        padding: "3px 8px",
+                        fontSize: "11px",
+                        fontWeight: "600",
+                        background: currentMode === "rendered" ? "rgba(99, 102, 241, 0.3)" : "transparent",
+                        color: currentMode === "rendered" ? "#ffffff" : "var(--text-muted)",
+                        border: "none",
+                        borderRadius: "4px",
+                      }}
+                      title="View formatted Markdown structure"
+                    >
+                      👁️ Formatted
+                    </button>
+                    <button
+                      onClick={() => setTaskViewModes((prev) => ({ ...prev, [task.id]: "raw" }))}
+                      className="btn"
+                      style={{
+                        padding: "3px 8px",
+                        fontSize: "11px",
+                        fontWeight: "600",
+                        background: currentMode === "raw" ? "rgba(99, 102, 241, 0.3)" : "transparent",
+                        color: currentMode === "raw" ? "#ffffff" : "var(--text-muted)",
+                        border: "none",
+                        borderRadius: "4px",
+                      }}
+                      title="View raw Markdown syntax"
+                    >
+                      📝 Markdown
+                    </button>
+                    <button
+                      onClick={() => setTaskViewModes((prev) => ({ ...prev, [task.id]: "edit" }))}
+                      className="btn"
+                      style={{
+                        padding: "3px 8px",
+                        fontSize: "11px",
+                        fontWeight: "600",
+                        background: currentMode === "edit" ? "rgba(99, 102, 241, 0.3)" : "transparent",
+                        color: currentMode === "edit" ? "#ffffff" : "var(--text-muted)",
+                        border: "none",
+                        borderRadius: "4px",
+                      }}
+                      title="Edit task fields"
+                    >
+                      ✏️ Edit
+                    </button>
+                  </div>
+
+                  {/* Copy Markdown Button */}
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(taskMarkdown);
+                      setCopiedTaskId(task.id);
+                      setTimeout(() => setCopiedTaskId(null), 2000);
+                    }}
+                    className="btn btn-secondary"
+                    style={{ padding: "4px 10px", fontSize: "11px" }}
+                    title="Copy task Markdown to clipboard"
+                  >
+                    {copiedTaskId === task.id ? "✓ Copied!" : "📋 Copy Markdown"}
+                  </button>
+
+                  {/* Delete Button */}
+                  <button
+                    onClick={() => handleDeleteTask(task.id)}
+                    className="btn btn-secondary"
+                    style={{
+                      padding: "4px 10px",
+                      fontSize: "11px",
+                      color: "var(--color-error)",
+                      borderColor: "rgba(239, 68, 68, 0.2)",
+                    }}
+                    title="Remove this task from plan"
+                  >
+                    Delete
+                  </button>
+                </div>
               </div>
 
               {/* Inherited Ownership Info */}
@@ -827,82 +1017,206 @@ export default function PlanReviewPage({ params }: PageProps) {
                 </div>
               </div>
 
-              {/* Title Input */}
-              <div style={{ marginBottom: "20px" }}>
-                <label style={{ display: "block", fontSize: "12px", fontWeight: "600", color: "var(--text-muted)", marginBottom: "6px" }}>
-                  TASK TITLE
-                </label>
-                <input
-                  type="text"
-                  className="input"
-                  value={task.title}
-                  onChange={(e) => handleTaskChange(task.id, "title", e.target.value)}
-                  style={{
-                    fontWeight: "600",
-                    fontSize: "15px",
-                    color: isFE ? "#818cf8" : "#c084fc",
-                    borderColor: "rgba(255, 255, 255, 0.15)",
-                  }}
-                />
-              </div>
-
-              {/* 2-Column Grid for Objective & Scope */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "16px" }}>
+              {/* RENDER MODE 1: Formatted Markdown Viewer (Rich visual structure) */}
+              {currentMode === "rendered" && (
                 <div>
-                  <label style={{ display: "block", fontSize: "12px", fontWeight: "600", color: "var(--text-muted)", marginBottom: "6px" }}>
-                    OBJECTIVE
-                  </label>
-                  <textarea
-                    className="input"
-                    rows={4}
-                    value={task.objective}
-                    onChange={(e) => handleTaskChange(task.id, "objective", e.target.value)}
-                    style={{ resize: "vertical", fontSize: "13px", lineHeight: "1.5" }}
-                  />
-                </div>
+                  <div style={{ fontSize: "16px", fontWeight: "700", color: isFE ? "#818cf8" : "#c084fc", marginBottom: "18px" }}>
+                    {task.title}
+                  </div>
 
-                <div>
-                  <label style={{ display: "block", fontSize: "12px", fontWeight: "600", color: "var(--text-muted)", marginBottom: "6px" }}>
-                    SCOPE
-                  </label>
-                  <textarea
-                    className="input"
-                    rows={4}
-                    value={task.scope}
-                    onChange={(e) => handleTaskChange(task.id, "scope", e.target.value)}
-                    style={{ resize: "vertical", fontSize: "13px", lineHeight: "1.5" }}
-                  />
-                </div>
-              </div>
+                  {/* Section 1: ## Objective */}
+                  <div style={{ marginBottom: "16px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "6px" }}>
+                      <span style={{ fontSize: "12px", fontFamily: "var(--font-mono)", fontWeight: "700", color: "var(--accent-primary)" }}>##</span>
+                      <h3 style={{ fontSize: "13px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.05em", color: "#e2e8f0" }}>
+                        Objective
+                      </h3>
+                    </div>
+                    <p style={{ fontSize: "13.5px", color: "var(--text-primary)", lineHeight: "1.6", background: "rgba(255, 255, 255, 0.02)", padding: "10px 14px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)" }}>
+                      {task.objective || "No objective defined."}
+                    </p>
+                  </div>
 
-              {/* 2-Column Grid for Expected Behavior & Dependencies */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "16px" }}>
-                <div>
-                  <label style={{ display: "block", fontSize: "12px", fontWeight: "600", color: "var(--text-muted)", marginBottom: "6px" }}>
-                    EXPECTED BEHAVIOR
-                  </label>
-                  <textarea
-                    className="input"
-                    rows={4}
-                    value={task.expected_behavior}
-                    onChange={(e) => handleTaskChange(task.id, "expected_behavior", e.target.value)}
-                    style={{ resize: "vertical", fontSize: "13px", lineHeight: "1.5" }}
-                  />
-                </div>
+                  {/* Section 2: ## Scope */}
+                  <div style={{ marginBottom: "16px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "6px" }}>
+                      <span style={{ fontSize: "12px", fontFamily: "var(--font-mono)", fontWeight: "700", color: "var(--accent-primary)" }}>##</span>
+                      <h3 style={{ fontSize: "13px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.05em", color: "#e2e8f0" }}>
+                        Scope
+                      </h3>
+                    </div>
+                    <div style={{ background: "rgba(255, 255, 255, 0.02)", padding: "10px 14px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)" }}>
+                      <ul style={{ margin: 0, paddingLeft: "18px", display: "flex", flexDirection: "column", gap: "6px" }}>
+                        {parseBulletPoints(task.scope).map((bullet, bIdx) => (
+                          <li key={bIdx} style={{ fontSize: "13px", color: "var(--text-primary)", lineHeight: "1.5" }}>
+                            {bullet}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
 
-                <div>
-                  <label style={{ display: "block", fontSize: "12px", fontWeight: "600", color: "var(--text-muted)", marginBottom: "6px" }}>
-                    DEPENDENCIES
-                  </label>
-                  <textarea
-                    className="input"
-                    rows={4}
-                    value={task.dependencies}
-                    onChange={(e) => handleTaskChange(task.id, "dependencies", e.target.value)}
-                    style={{ resize: "vertical", fontSize: "13px", lineHeight: "1.5" }}
-                  />
+                  {/* Section 3: ## Expected Behavior */}
+                  <div style={{ marginBottom: "16px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "6px" }}>
+                      <span style={{ fontSize: "12px", fontFamily: "var(--font-mono)", fontWeight: "700", color: "var(--accent-primary)" }}>##</span>
+                      <h3 style={{ fontSize: "13px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.05em", color: "#e2e8f0" }}>
+                        Expected Behavior
+                      </h3>
+                    </div>
+                    <div style={{ background: "rgba(255, 255, 255, 0.02)", padding: "10px 14px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)" }}>
+                      <ul style={{ margin: 0, paddingLeft: "18px", display: "flex", flexDirection: "column", gap: "6px" }}>
+                        {parseBulletPoints(task.expected_behavior).map((bullet, bIdx) => (
+                          <li key={bIdx} style={{ fontSize: "13px", color: "var(--text-primary)", lineHeight: "1.5" }}>
+                            {bullet}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+
+                  {/* Section 4: ## Dependencies */}
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "6px" }}>
+                      <span style={{ fontSize: "12px", fontFamily: "var(--font-mono)", fontWeight: "700", color: "var(--accent-primary)" }}>##</span>
+                      <h3 style={{ fontSize: "13px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.05em", color: "#e2e8f0" }}>
+                        Dependencies
+                      </h3>
+                    </div>
+                    <div style={{ background: "rgba(255, 255, 255, 0.02)", padding: "10px 14px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)" }}>
+                      <ul style={{ margin: 0, paddingLeft: "18px", display: "flex", flexDirection: "column", gap: "6px" }}>
+                        {parseBulletPoints(task.dependencies, "None identified").map((bullet, bIdx) => (
+                          <li key={bIdx} style={{ fontSize: "13px", color: "var(--text-primary)", lineHeight: "1.5" }}>
+                            {bullet}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
                 </div>
-              </div>
+              )}
+
+              {/* RENDER MODE 2: Raw Markdown View */}
+              {currentMode === "raw" && (
+                <div>
+                  <div style={{ fontSize: "16px", fontWeight: "700", color: isFE ? "#818cf8" : "#c084fc", marginBottom: "12px" }}>
+                    {task.title}
+                  </div>
+                  <pre
+                    style={{
+                      fontFamily: "var(--font-mono)",
+                      fontSize: "12.5px",
+                      lineHeight: "1.6",
+                      background: "rgba(10, 14, 23, 0.8)",
+                      border: "1px solid var(--border-subtle)",
+                      borderRadius: "var(--radius-md)",
+                      padding: "16px",
+                      color: "#e2e8f0",
+                      whiteSpace: "pre-wrap",
+                      wordBreak: "break-word",
+                    }}
+                  >
+                    {taskMarkdown}
+                  </pre>
+                </div>
+              )}
+
+              {/* RENDER MODE 3: Edit Task Fields */}
+              {currentMode === "edit" && (
+                <div>
+                  {/* Title Input */}
+                  <div style={{ marginBottom: "20px" }}>
+                    <label style={{ display: "block", fontSize: "12px", fontWeight: "600", color: "var(--text-muted)", marginBottom: "6px" }}>
+                      TASK TITLE
+                    </label>
+                    <input
+                      type="text"
+                      className="input"
+                      value={task.title}
+                      onChange={(e) => handleTaskChange(task.id, "title", e.target.value)}
+                      style={{
+                        fontWeight: "600",
+                        fontSize: "15px",
+                        color: isFE ? "#818cf8" : "#c084fc",
+                        borderColor: "rgba(255, 255, 255, 0.15)",
+                      }}
+                    />
+                  </div>
+
+                  {/* 2-Column Grid for Objective & Scope */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "16px" }}>
+                    <div>
+                      <label style={{ display: "block", fontSize: "12px", fontWeight: "600", color: "var(--text-muted)", marginBottom: "6px" }}>
+                        OBJECTIVE (Concise paragraph)
+                      </label>
+                      <textarea
+                        className="input"
+                        rows={4}
+                        value={task.objective}
+                        onChange={(e) => handleTaskChange(task.id, "objective", e.target.value)}
+                        placeholder="A clear and concise description of the task objective..."
+                        style={{ resize: "vertical", fontSize: "13px", lineHeight: "1.5" }}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ display: "block", fontSize: "12px", fontWeight: "600", color: "var(--text-muted)", marginBottom: "6px" }}>
+                        SCOPE (Bullet points)
+                      </label>
+                      <textarea
+                        className="input"
+                        rows={4}
+                        value={task.scope}
+                        onChange={(e) => handleTaskChange(task.id, "scope", e.target.value)}
+                        placeholder="- Implement work item 1&#10;- Implement work item 2"
+                        style={{ resize: "vertical", fontSize: "13px", lineHeight: "1.5" }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* 2-Column Grid for Expected Behavior & Dependencies */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "16px" }}>
+                    <div>
+                      <label style={{ display: "block", fontSize: "12px", fontWeight: "600", color: "var(--text-muted)", marginBottom: "6px" }}>
+                        EXPECTED BEHAVIOR (Bullet points)
+                      </label>
+                      <textarea
+                        className="input"
+                        rows={4}
+                        value={task.expected_behavior}
+                        onChange={(e) => handleTaskChange(task.id, "expected_behavior", e.target.value)}
+                        placeholder="- User action produces expected result&#10;- Edge case handled correctly"
+                        style={{ resize: "vertical", fontSize: "13px", lineHeight: "1.5" }}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ display: "block", fontSize: "12px", fontWeight: "600", color: "var(--text-muted)", marginBottom: "6px" }}>
+                        DEPENDENCIES (Bullet points)
+                      </label>
+                      <textarea
+                        className="input"
+                        rows={4}
+                        value={task.dependencies}
+                        onChange={(e) => handleTaskChange(task.id, "dependencies", e.target.value)}
+                        placeholder="- Upstream API service&#10;- Configuration flag"
+                        style={{ resize: "vertical", fontSize: "13px", lineHeight: "1.5" }}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "8px" }}>
+                    <button
+                      type="button"
+                      onClick={() => setTaskViewModes((prev) => ({ ...prev, [task.id]: "rendered" }))}
+                      className="btn btn-secondary"
+                      style={{ fontSize: "12px", padding: "6px 12px" }}
+                    >
+                      Done Editing (Preview Markdown) →
+                    </button>
+                  </div>
+                </div>
+              )}
 
             </div>
           );
