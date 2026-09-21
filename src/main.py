@@ -477,5 +477,47 @@ def resume_command(
     )
 
 
+@app.command("update-tasks")
+def update_tasks_command(
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Preview description updates without sending API requests"
+    ),
+) -> None:
+    """Fetch all tasks created by this application from executions/plans and reformat their descriptions, removing Testing Considerations and Acceptance Criteria."""
+    settings = get_settings()
+    creator = TaskCreator(settings=settings)
+    mode_str = "[yellow](DRY RUN)[/yellow]" if dry_run else "[green](LIVE API UPDATE)[/green]"
+    console.print(
+        f"[bold cyan]Scanning all executions and updating task descriptions {mode_str}...[/bold cyan]"
+    )
+    result = creator.update_all_executed_tasks_descriptions(dry_run=dry_run)
+
+    table = Table(title=f"Task Description Reformatting Summary {mode_str}")
+    table.add_column("Zoho Task ID", style="cyan", no_wrap=True)
+    table.add_column("Task Title", style="white")
+    table.add_column("Plan ID", style="dim")
+    table.add_column("Status", style="green")
+
+    for task_info in result["tasks"]:
+        table.add_row(
+            task_info["zoho_task_id"],
+            task_info["title"],
+            task_info["plan_id"] or "N/A",
+            task_info["status"],
+        )
+
+    console.print(table)
+
+    console.print(
+        f"\n[bold green]✓ Done![/bold green] Total processed: {result['total_processed']}, updated: {result['updated_count']}."
+    )
+    if result["errors"]:
+        console.print(f"[bold red]Errors ({len(result['errors'])}):[/bold red]")
+        for err in result["errors"]:
+            console.print(f" - {err}")
+
+
+
 if __name__ == "__main__":
     app()
+

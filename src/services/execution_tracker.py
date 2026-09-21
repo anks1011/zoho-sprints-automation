@@ -121,3 +121,13 @@ class ExecutionTracker:
         if not self.settings.executions_dir.exists():
             return []
         return [p.stem for p in self.settings.executions_dir.glob("exec_*.json")]
+
+    def list_records(self) -> List[ExecutionRecord]:
+        """List all loaded execution records."""
+        records = []
+        for eid in self.list_executions():
+            rec = self.load_execution(eid)
+            if rec:
+                records.append(rec)
+        return records
+

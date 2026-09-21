@@ -46,15 +46,15 @@ STRICT CONSTRAINTS & ARCHITECTURAL GUIDELINES:
      * DO NOT use Markdown bullet syntax ('- ', '* ').
      * Use sequential NUMBERED LISTS ('1. ', '2. ') for all list sections.
      * Preserve double line breaks between sections.
-   - For every task (FE and each BE), provide complete, detailed contents strictly adhering to these 6 sections:
+   - For every task (FE and each BE), provide complete, detailed contents strictly adhering to these 4 sections in order:
      * title_suffix: Clear, professional title describing the work.
      * objective: A clear and concise description of what this task accomplishes and why it is required (as a concise paragraph).
      * scope: Specific implementation responsibilities and components affected. MUST use a numbered list ('1. ...\n2. ...').
      * expected_behavior: Clear description of expected system behavior under normal and failure/edge conditions. MUST use a numbered list ('1. ...\n2. ...').
      * dependencies: Required services, configurations, permissions, APIs, or other dependencies. Use 'None identified.' or a numbered list.
-     * testing_considerations: Unit, integration, or UI test scenarios. MUST use a numbered list ('1. ...\n2. ...').
-     * acceptance_criteria: Verifiable acceptance criteria for this task. Array of strings or numbered list.
-   - Keep content specific to the task. Do NOT generate scope, expected behavior, testing considerations, or acceptance criteria as plain paragraphs; format them as numbered lists.
+   - DO NOT include or generate any 'Testing Considerations' section.
+   - DO NOT include or generate any 'Acceptance Criteria' section.
+   - Keep content specific to the task. Do NOT generate scope or expected behavior as plain paragraphs; format them as numbered lists.
 6. If the story description is short, ambiguous, or missing crucial specifications, explicitly list the ambiguities in the `ambiguities` array.
 7. Output MUST be valid JSON adhering strictly to the provided schema.
 """
@@ -139,9 +139,7 @@ class AIStoryAnalyzer:
             f'    "objective": "string (concise paragraph)",\n'
             f'    "scope": "1. First scope item\\n2. Second scope item",\n'
             f'    "expected_behavior": "1. First behavior\\n2. Second behavior",\n'
-            f'    "dependencies": "None identified. or 1. Service dependency",\n'
-            f'    "testing_considerations": "1. Test scenario 1\\n2. Test scenario 2",\n'
-            f'    "acceptance_criteria": ["1. Acceptance criterion 1", "2. Acceptance criterion 2"]\n'
+            f'    "dependencies": "None identified. or 1. Service dependency"\n'
             f'  }} or null,\n'
             f'  "backend_tasks": [\n'
             f'    {{\n'
@@ -150,9 +148,7 @@ class AIStoryAnalyzer:
             f'      "objective": "string (concise paragraph)",\n'
             f'      "scope": "1. First scope item\\n2. Second scope item",\n'
             f'      "expected_behavior": "1. First behavior\\n2. Second behavior",\n'
-            f'      "dependencies": "None identified. or 1. Service dependency",\n'
-            f'      "testing_considerations": "1. Test scenario 1\\n2. Test scenario 2",\n'
-            f'      "acceptance_criteria": ["1. Acceptance criterion 1", "2. Acceptance criterion 2"]\n'
+            f'      "dependencies": "None identified. or 1. Service dependency"\n'
             f'    }}\n'
             f'  ]\n'
             f"}}"

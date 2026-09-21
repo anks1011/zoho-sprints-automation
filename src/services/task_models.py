@@ -129,16 +129,6 @@ class GeneratedTask(BaseModel):
 
         Dependencies:
         None identified. (or numbered list)
-
-        Testing Considerations:
-
-        1. ...
-        2. ...
-
-        Acceptance Criteria:
-
-        1. ...
-        2. ...
         """
         obj = clean_plain_text(self.objective)
         scope = ensure_numbered_list(self.scope, fallback="1. Implement requirements according to story specification.")
@@ -157,19 +147,11 @@ class GeneratedTask(BaseModel):
             else:
                 deps_section = f"Dependencies:\n{deps_formatted}"
 
-        tests_fallback = "1. Verify behavior matches expected functionality.\n2. Verify edge cases and error handling."
-        tests = ensure_numbered_list(self.testing_considerations, fallback=tests_fallback)
-
-        ac_fallback = "1. Acceptance criteria defined in story specification are satisfied."
-        ac = ensure_numbered_list(self.acceptance_criteria, fallback=ac_fallback)
-
         return (
             f"Objective:\n{obj}\n\n"
             f"Scope:\n\n{scope}\n\n"
             f"Expected Behavior:\n\n{exp}\n\n"
-            f"{deps_section}\n\n"
-            f"Testing Considerations:\n\n{tests}\n\n"
-            f"Acceptance Criteria:\n\n{ac}"
+            f"{deps_section}"
         )
 
 

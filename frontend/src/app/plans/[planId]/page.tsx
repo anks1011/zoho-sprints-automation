@@ -105,10 +105,7 @@ function buildTaskDescription(task: GeneratedTask): string {
     }
   }
 
-  const tests = formatNumberedList(task.testing_considerations, "1. Verify behavior matches expected functionality.\n2. Verify edge cases and error handling.");
-  const ac = formatNumberedList(task.acceptance_criteria, "1. Acceptance criteria defined in story specification are satisfied.");
-
-  return `Objective:\n${obj}\n\nScope:\n\n${scope}\n\nExpected Behavior:\n\n${exp}\n\n${depsSection}\n\nTesting Considerations:\n\n${tests}\n\nAcceptance Criteria:\n\n${ac}`;
+  return `Objective:\n${obj}\n\nScope:\n\n${scope}\n\nExpected Behavior:\n\n${exp}\n\n${depsSection}`;
 }
 
 export default function PlanReviewPage({ params }: PageProps) {
@@ -234,10 +231,6 @@ export default function PlanReviewPage({ params }: PageProps) {
       scope: formatNumberedList(t.scope, "1. Implement requirements according to story specification."),
       expected_behavior: formatNumberedList(t.expected_behavior, "1. System behaves as defined in objective."),
       dependencies: formatNumberedList(t.dependencies, "None identified."),
-      testing_considerations: formatNumberedList(t.testing_considerations, "1. Verify behavior matches expected functionality.\n2. Verify edge cases and error handling."),
-      acceptance_criteria: Array.isArray(t.acceptance_criteria)
-        ? t.acceptance_criteria
-        : parseNumberedList(t.acceptance_criteria, "1. Acceptance criteria defined in story specification are satisfied."),
     }));
 
     try {
@@ -1131,38 +1124,6 @@ export default function PlanReviewPage({ params }: PageProps) {
                       )}
                     </div>
                   </div>
-
-                  {/* Section 5: Testing Considerations: */}
-                  <div style={{ marginBottom: "16px" }}>
-                    <h3 style={{ fontSize: "13px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.05em", color: "#e2e8f0", marginBottom: "6px" }}>
-                      Testing Considerations:
-                    </h3>
-                    <div style={{ background: "rgba(255, 255, 255, 0.02)", padding: "10px 14px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)" }}>
-                      <ol style={{ margin: 0, paddingLeft: "20px", display: "flex", flexDirection: "column", gap: "6px" }}>
-                        {parseNumberedList(task.testing_considerations, "1. Verify behavior matches expected functionality.\n2. Verify edge cases and error handling.").map((item, bIdx) => (
-                          <li key={bIdx} style={{ fontSize: "13px", color: "var(--text-primary)", lineHeight: "1.5" }}>
-                            {item}
-                          </li>
-                        ))}
-                      </ol>
-                    </div>
-                  </div>
-
-                  {/* Section 6: Acceptance Criteria: */}
-                  <div>
-                    <h3 style={{ fontSize: "13px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.05em", color: "#e2e8f0", marginBottom: "6px" }}>
-                      Acceptance Criteria:
-                    </h3>
-                    <div style={{ background: "rgba(255, 255, 255, 0.02)", padding: "10px 14px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)" }}>
-                      <ol style={{ margin: 0, paddingLeft: "20px", display: "flex", flexDirection: "column", gap: "6px" }}>
-                        {parseNumberedList(task.acceptance_criteria, "1. Acceptance criteria defined in story specification are satisfied.").map((item, bIdx) => (
-                          <li key={bIdx} style={{ fontSize: "13px", color: "var(--text-primary)", lineHeight: "1.5" }}>
-                            {item}
-                          </li>
-                        ))}
-                      </ol>
-                    </div>
-                  </div>
                 </div>
               )}
 
@@ -1270,37 +1231,6 @@ export default function PlanReviewPage({ params }: PageProps) {
                         value={task.dependencies}
                         onChange={(e) => handleTaskChange(task.id, "dependencies", e.target.value)}
                         placeholder="None identified."
-                        style={{ resize: "vertical", fontSize: "13px", lineHeight: "1.5" }}
-                      />
-                    </div>
-                  </div>
-
-                  {/* 2-Column Grid for Testing Considerations & Acceptance Criteria */}
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "16px" }}>
-                    <div>
-                      <label style={{ display: "block", fontSize: "12px", fontWeight: "600", color: "var(--text-muted)", marginBottom: "6px" }}>
-                        TESTING CONSIDERATIONS (Numbered list)
-                      </label>
-                      <textarea
-                        className="input"
-                        rows={4}
-                        value={task.testing_considerations || ""}
-                        onChange={(e) => handleTaskChange(task.id, "testing_considerations", e.target.value)}
-                        placeholder="1. Verify behavior matches expected functionality&#10;2. Verify edge cases"
-                        style={{ resize: "vertical", fontSize: "13px", lineHeight: "1.5" }}
-                      />
-                    </div>
-
-                    <div>
-                      <label style={{ display: "block", fontSize: "12px", fontWeight: "600", color: "var(--text-muted)", marginBottom: "6px" }}>
-                        ACCEPTANCE CRITERIA (Numbered list)
-                      </label>
-                      <textarea
-                        className="input"
-                        rows={4}
-                        value={Array.isArray(task.acceptance_criteria) ? task.acceptance_criteria.join("\n") : (task.acceptance_criteria || "")}
-                        onChange={(e) => handleTaskChange(task.id, "acceptance_criteria", e.target.value.split("\n"))}
-                        placeholder="1. Acceptance criterion 1&#10;2. Acceptance criterion 2"
                         style={{ resize: "vertical", fontSize: "13px", lineHeight: "1.5" }}
                       />
                     </div>

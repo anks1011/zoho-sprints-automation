@@ -57,28 +57,24 @@ def test_task_generator_fe_only(base_story: StoryItem) -> None:
     assert "**" not in desc
     assert not any(line.strip().startswith("- ") for line in desc.splitlines())
 
-    # 2. All 6 sections are present
+    # 2. Four sections are present, Testing Considerations & Acceptance Criteria are NOT present
     assert "Objective:" in desc
     assert "Scope:" in desc
     assert "Expected Behavior:" in desc
     assert "Dependencies:" in desc
-    assert "Testing Considerations:" in desc
-    assert "Acceptance Criteria:" in desc
+    assert "Testing Considerations" not in desc
+    assert "Acceptance Criteria" not in desc
 
     # 3. Sections appear in the exact required order
     obj_pos = desc.index("Objective:")
     scope_pos = desc.index("Scope:")
     exp_pos = desc.index("Expected Behavior:")
     deps_pos = desc.index("Dependencies:")
-    test_pos = desc.index("Testing Considerations:")
-    ac_pos = desc.index("Acceptance Criteria:")
-    assert obj_pos < scope_pos < exp_pos < deps_pos < test_pos < ac_pos
+    assert obj_pos < scope_pos < exp_pos < deps_pos
 
-    # 4. Scope, Expected Behavior, Testing Considerations, and Acceptance Criteria use numbered lists (1. )
+    # 4. Scope and Expected Behavior use numbered lists (1. )
     assert "1. " in desc[scope_pos:exp_pos]
     assert "1. " in desc[exp_pos:deps_pos]
-    assert "1. " in desc[test_pos:ac_pos]
-    assert "1. " in desc[ac_pos:]
 
 
 def test_task_generator_be_only(base_story: StoryItem) -> None:
@@ -193,28 +189,24 @@ def test_task_description_zoho_compatible_format() -> None:
     assert "**" not in desc
     assert not any(line.strip().startswith("- ") for line in desc.splitlines())
 
-    # 2. Six required sections present with plain-text labels
+    # 2. Four required sections present with plain-text labels, no Testing Considerations or Acceptance Criteria
     assert "Objective:" in desc
     assert "Scope:" in desc
     assert "Expected Behavior:" in desc
     assert "Dependencies:" in desc
-    assert "Testing Considerations:" in desc
-    assert "Acceptance Criteria:" in desc
+    assert "Testing Considerations" not in desc
+    assert "Acceptance Criteria" not in desc
 
     # 3. Strict order
     obj_idx = desc.index("Objective:")
     scope_idx = desc.index("Scope:")
     exp_idx = desc.index("Expected Behavior:")
     deps_idx = desc.index("Dependencies:")
-    test_idx = desc.index("Testing Considerations:")
-    ac_idx = desc.index("Acceptance Criteria:")
-    assert obj_idx < scope_idx < exp_idx < deps_idx < test_idx < ac_idx
+    assert obj_idx < scope_idx < exp_idx < deps_idx
 
-    # 4. Scope, Expected Behavior, Testing Considerations, Acceptance Criteria use numbered lists
+    # 4. Scope and Expected Behavior use numbered lists
     scope_text = desc[scope_idx:exp_idx]
     exp_text = desc[exp_idx:deps_idx]
-    test_text = desc[test_idx:ac_idx]
-    ac_text = desc[ac_idx:]
 
     assert "1. Implement service class" in scope_text
     assert "2. Connect repository" in scope_text
@@ -222,12 +214,6 @@ def test_task_description_zoho_compatible_format() -> None:
 
     assert "1. Valid data returns HTTP 200" in exp_text
     assert "2. Invalid data returns HTTP 400 with error details" in exp_text
-
-    assert "1. Unit test for service logic" in test_text
-    assert "2. Integration test with repository" in test_text
-
-    assert "1. Valid data returns HTTP 200" in ac_text
-    assert "2. Invalid data returns structured error" in ac_text
 
 
 def test_task_description_fallback_defaults_use_numbered_lists() -> None:
@@ -251,5 +237,5 @@ def test_task_description_fallback_defaults_use_numbered_lists() -> None:
     assert "Scope:\n\n1. Implement requirements according to story specification." in desc
     assert "Expected Behavior:\n\n1. System behaves as defined in objective." in desc
     assert "Dependencies:\nNone identified." in desc
-    assert "Testing Considerations:" in desc
-    assert "Acceptance Criteria:" in desc
+    assert "Testing Considerations" not in desc
+    assert "Acceptance Criteria" not in desc

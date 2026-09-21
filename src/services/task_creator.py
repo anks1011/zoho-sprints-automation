@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -442,3 +443,105 @@ class TaskCreator:
             failed_tasks=record.failed_count,
             tasks=record.tasks,
         )
+
+    def update_all_executed_tasks_descriptions(
+        self, plan_store: Optional[Any] = None, dry_run: bool = False
+    ) -> Dict[str, Any]:
+        """Fetch all tasks created by this application from existing executions/plans,
+        reformat each task description into clean Zoho-compatible readable format,
+        and completely remove Testing Considerations and Acceptance Criteria sections and content.
+        """
+        if plan_store is None:
+            from src.services.plan_store import PlanStore
+            plan_store = PlanStore(settings=self.settings)
+
+        records = self.tracker.list_records()
+        processed_tasks = set()
+        updated_tasks = []
+        errors = []
+
+        for record in records:
+            plan = None
+            if record.plan_id:
+                try:
+                    plan = plan_store.load_plan(record.plan_id)
+                except Exception as e:
+                    logger.warning("Could not load plan %s: %s", record.plan_id, e)
+
+            plan_tasks = {t.title.strip(): t for t in plan.tasks} if plan else {}
+
+            for state in record.tasks:
+                zoho_task_id = state.zoho_task_id
+                title = state.title.strip()
+
+                if not zoho_task_id or zoho_task_id in processed_tasks:
+                    continue
+
+                # 1. Obtain clean formatted description
+                plan_task = plan_tasks.get(title)
+                if plan_task:
+                    new_desc = plan_task.format_description()
+                else:
+                    # Fetch from Zoho and strip
+                    try:
+                        resp = self.api.client.request(
+                            "GET",
+                            f"team/{record.team_id}/projects/{record.project_id}/sprints/{record.sprint_id}/item/{zoho_task_id}/",
+                            params={"action": "details"},
+                        )
+                        raw_item = (resp.get("items") or [{}])[0] if isinstance(resp, dict) else {}
+                        new_desc = raw_item.get("desc") or raw_item.get("description") or ""
+                    except Exception as fetch_err:
+                        err_msg = f"Failed to fetch task {zoho_task_id} ({title}): {fetch_err}"
+                        logger.error(err_msg)
+                        errors.append(err_msg)
+                        continue
+
+                # 2. Guarantee removal of Testing Considerations and Acceptance Criteria (headings and contents)
+                new_desc = re.sub(
+                    r"(?im)^(?:##\s*)?Testing Considerations:?[\s\S]*?(?=(?:^|\n)(?:##\s*)?(?:Acceptance Criteria:|Objective:|Scope:|Expected Behavior:|Dependencies:)|\Z)",
+                    "",
+                    new_desc,
+                ).strip()
+                new_desc = re.sub(
+                    r"(?im)^(?:##\s*)?Acceptance Criteria:?[\s\S]*?(?=(?:^|\n)(?:##\s*)?(?:Testing Considerations:|Objective:|Scope:|Expected Behavior:|Dependencies:)|\Z)",
+                    "",
+                    new_desc,
+                ).strip()
+
+                if not dry_run:
+                    endpoint = f"team/{record.team_id}/projects/{record.project_id}/sprints/{record.sprint_id}/item/{zoho_task_id}/"
+                    try:
+                        self.api.client.request("POST", endpoint, data={"description": new_desc})
+                        processed_tasks.add(zoho_task_id)
+                        updated_tasks.append({
+                            "zoho_task_id": zoho_task_id,
+                            "title": title,
+                            "plan_id": record.plan_id,
+                            "story_id": record.story_id,
+                            "status": "UPDATED",
+                            "description": new_desc,
+                        })
+                        logger.info("Updated task %s (%s)", zoho_task_id, title)
+                    except Exception as update_err:
+                        err_msg = f"Failed to update task {zoho_task_id} ({title}): {update_err}"
+                        logger.error(err_msg)
+                        errors.append(err_msg)
+                else:
+                    processed_tasks.add(zoho_task_id)
+                    updated_tasks.append({
+                        "zoho_task_id": zoho_task_id,
+                        "title": title,
+                        "plan_id": record.plan_id,
+                        "story_id": record.story_id,
+                        "status": "DRY_RUN",
+                        "description": new_desc,
+                    })
+
+        return {
+            "total_processed": len(processed_tasks),
+            "updated_count": len(updated_tasks),
+            "errors": errors,
+            "tasks": updated_tasks,
+        }
+

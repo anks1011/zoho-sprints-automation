@@ -242,16 +242,14 @@ def test_update_plan_success(sample_plan: GeneratedTaskPlan) -> None:
         assert "Scope:" in desc
         assert "Expected Behavior:" in desc
         assert "Dependencies:" in desc
-        assert "Testing Considerations:" in desc
-        assert "Acceptance Criteria:" in desc
+        assert "Testing Considerations" not in desc
+        assert "Acceptance Criteria" not in desc
 
         obj_idx = desc.index("Objective:")
         scope_idx = desc.index("Scope:")
         exp_idx = desc.index("Expected Behavior:")
         deps_idx = desc.index("Dependencies:")
-        test_idx = desc.index("Testing Considerations:")
-        ac_idx = desc.index("Acceptance Criteria:")
-        assert obj_idx < scope_idx < exp_idx < deps_idx < test_idx < ac_idx
+        assert obj_idx < scope_idx < exp_idx < deps_idx
 
         assert "1. Revised scope text." in desc
         assert "1. Revised expected behavior." in desc
