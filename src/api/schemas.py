@@ -109,6 +109,17 @@ class GeneratedTaskSchema(BaseModel):
     assignee: Optional[TaskOwnerSchema] = None
     qa_owner: Optional[TaskOwnerSchema] = None
 
+    @field_validator("acceptance_criteria", mode="before")
+    @classmethod
+    def normalize_acceptance_criteria(cls, v: Any) -> List[str]:
+        if v is None:
+            return []
+        if isinstance(v, str):
+            return [line.strip() for line in v.splitlines() if line.strip()]
+        if isinstance(v, list):
+            return [str(item).strip() for item in v if str(item).strip()]
+        return []
+
 
 class PlanResponse(BaseModel):
     """Response payload for a generated or loaded plan."""
@@ -145,6 +156,17 @@ class UpdateTaskItem(BaseModel):
     acceptance_criteria: List[str] = Field(default_factory=list)
     assignee: Optional[TaskOwnerSchema] = None
     qa_owner: Optional[TaskOwnerSchema] = None
+
+    @field_validator("acceptance_criteria", mode="before")
+    @classmethod
+    def normalize_acceptance_criteria(cls, v: Any) -> List[str]:
+        if v is None:
+            return []
+        if isinstance(v, str):
+            return [line.strip() for line in v.splitlines() if line.strip()]
+        if isinstance(v, list):
+            return [str(item).strip() for item in v if str(item).strip()]
+        return []
 
     @field_validator("title")
     @classmethod

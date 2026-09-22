@@ -291,3 +291,50 @@ def test_is_zoho_html_formatted() -> None:
     with_tc = valid_html + "\n<p><strong>Testing Considerations:</strong></p>"
     assert is_zoho_html_formatted(with_tc) is False
 
+
+def test_task_generator_with_string_acceptance_criteria() -> None:
+    """Verify that a story with raw markdown string acceptance_criteria generates tasks without ValidationError."""
+    story = StoryItem(
+        id="STORY-99",
+        name="Update KYC Status",
+        description="Process KYC updates",
+        acceptance_criteria="**\n\nScenario 1 - happy path\nGiven user submits KYC\nWhen approved\nThen status updates | Step 2 |",
+        team_id="T1",
+        project_id="P1",
+        sprint_id="S1",
+    )
+
+    analysis = StoryAnalysisResult(
+        business_objective="Process KYC updates",
+        summary="KYC flow breakdown",
+        requires_frontend=True,
+        requires_backend=True,
+        frontend_task=RawFrontendTaskDraft(
+            title_suffix="KYC Form UI",
+            objective="Provide KYC submission form",
+            scope="Add KYC form component",
+            expected_behavior="Form validates inputs",
+            # acceptance_criteria not provided by LLM -> falls back to story.acceptance_criteria
+        ),
+        backend_tasks=[
+            RawBackendTaskDraft(
+                boundary="API",
+                title_suffix="KYC Submission Endpoint",
+                objective="Endpoint to process KYC submission",
+                scope="Validate payload and persist record",
+                expected_behavior="Returns 200 on success",
+                # acceptance_criteria not provided by LLM -> falls back to story.acceptance_criteria
+            )
+        ],
+    )
+
+    generator = TaskGenerator()
+    plan = generator.generate_plan(story, analysis)
+
+    assert plan.total_task_count == 2
+    for task in plan.tasks:
+        assert isinstance(task.acceptance_criteria, list)
+        assert len(task.acceptance_criteria) > 0
+        assert not any(ac.startswith("**") for ac in task.acceptance_criteria)
+
+

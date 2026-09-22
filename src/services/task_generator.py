@@ -12,6 +12,7 @@ from src.services.task_models import (
     StoryAnalysisResult,
     TaskOwner,
     ensure_numbered_list,
+    parse_list_items,
 )
 
 logger = logging.getLogger(__name__)
@@ -79,7 +80,7 @@ class TaskGenerator:
                 expected_behavior=ensure_numbered_list(fe_raw.expected_behavior, fallback="1. User can interact with the interface with proper validation."),
                 dependencies=ensure_numbered_list(fe_raw.dependencies, fallback="None identified."),
                 testing_considerations=ensure_numbered_list(fe_raw.testing_considerations, fallback="1. Verify behavior matches expected functionality.\n2. Verify edge cases and error handling."),
-                acceptance_criteria=fe_raw.acceptance_criteria if fe_raw.acceptance_criteria else (story.acceptance_criteria or []),
+                acceptance_criteria=fe_raw.acceptance_criteria if fe_raw.acceptance_criteria else parse_list_items(story.acceptance_criteria),
                 assignee=dev_owner,
                 qa_owner=qa_owner,
             )
@@ -96,7 +97,7 @@ class TaskGenerator:
                     expected_behavior="1. User can interact with the interface with proper validation.\n2. Loading and error states are handled gracefully.",
                     dependencies="None identified.",
                     testing_considerations="1. Verify behavior matches expected functionality.\n2. Verify edge cases and error handling.",
-                    acceptance_criteria=story.acceptance_criteria or [],
+                    acceptance_criteria=parse_list_items(story.acceptance_criteria),
                     assignee=dev_owner,
                     qa_owner=qa_owner,
                 )
@@ -126,7 +127,7 @@ class TaskGenerator:
                     expected_behavior=ensure_numbered_list(be_raw.expected_behavior, fallback="1. Backend endpoints process requests according to business rules."),
                     dependencies=ensure_numbered_list(be_raw.dependencies, fallback="None identified."),
                     testing_considerations=ensure_numbered_list(be_raw.testing_considerations, fallback="1. Verify behavior matches expected functionality.\n2. Verify edge cases and error handling."),
-                    acceptance_criteria=be_raw.acceptance_criteria if be_raw.acceptance_criteria else (story.acceptance_criteria or []),
+                    acceptance_criteria=be_raw.acceptance_criteria if be_raw.acceptance_criteria else parse_list_items(story.acceptance_criteria),
                     assignee=dev_owner,
                     qa_owner=qa_owner,
                 )
@@ -143,7 +144,7 @@ class TaskGenerator:
                     expected_behavior="1. Backend endpoints process requests according to business rules.\n2. Database transactions and validation execute correctly.",
                     dependencies="None identified.",
                     testing_considerations="1. Verify behavior matches expected functionality.\n2. Verify edge cases and error handling.",
-                    acceptance_criteria=story.acceptance_criteria or [],
+                    acceptance_criteria=parse_list_items(story.acceptance_criteria),
                     assignee=dev_owner,
                     qa_owner=qa_owner,
                 )

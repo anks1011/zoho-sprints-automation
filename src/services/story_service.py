@@ -222,12 +222,13 @@ class StoryService:
         if not text:
             return None
         pattern = re.compile(
-            r"(?:###?\s*Acceptance Criteria|Acceptance Criteria:?)(.*?)(?:###|\Z)",
+            r"(?:\*{1,2}\s*)?(?:###?\s*)?Acceptance Criteria\s*(?::|\*{1,2}:?|\b)(.*?)(?:###|\Z)",
             re.IGNORECASE | re.DOTALL,
         )
         match = pattern.search(text)
         if match:
             extracted = match.group(1).strip()
+            extracted = re.sub(r"^\s*[*_~:]+\s*", "", extracted).strip()
             return extracted if extracted else None
         return None
 

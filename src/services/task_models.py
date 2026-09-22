@@ -52,6 +52,7 @@ def ensure_numbered_list(text: Any, fallback: str = "None identified.") -> str:
                 continue
             for line in cleaned_str.splitlines():
                 clean = re.sub(r"^(?:[-*+•]|\d+[.)])\s*", "", line.strip()).strip()
+                clean = clean.strip("*_~- ")
                 if clean and clean.lower().rstrip(".") not in ("none", "none identified"):
                     cleaned_items.append(clean)
         if not cleaned_items:
@@ -69,6 +70,7 @@ def ensure_numbered_list(text: Any, fallback: str = "None identified.") -> str:
     cleaned_items = []
     for line in lines:
         clean = re.sub(r"^(?:[-*+•]|\d+[.)])\s*", "", line).strip()
+        clean = clean.strip("*_~- ")
         if clean and clean.lower().rstrip(".") not in ("none", "none identified"):
             cleaned_items.append(clean)
 
@@ -91,6 +93,7 @@ def parse_list_items(text: Any, fallback: Optional[List[str]] = None) -> List[st
                 continue
             for line in cleaned_str.splitlines():
                 clean = re.sub(r"^(?:[-*+•]|\d+[.)])\s*", "", line.strip()).strip()
+                clean = clean.strip("*_~- ")
                 if clean and clean.lower().rstrip(".") not in ("none", "none identified"):
                     items.append(clean)
     else:
@@ -100,6 +103,7 @@ def parse_list_items(text: Any, fallback: Optional[List[str]] = None) -> List[st
             if not line:
                 continue
             clean = re.sub(r"^(?:[-*+•]|\d+[.)])\s*", "", line).strip()
+            clean = clean.strip("*_~- ")
             if clean and clean.lower().rstrip(".") not in ("none", "none identified"):
                 items.append(clean)
 
@@ -186,6 +190,29 @@ class GeneratedTask(BaseModel):
     assignee: Optional[TaskOwner] = Field(default=None, description="Story Dev Owner assigned to task")
     qa_owner: Optional[TaskOwner] = Field(default=None, description="Story QA Owner assigned to task")
 
+    @field_validator("acceptance_criteria", mode="before")
+    @classmethod
+    def validate_acceptance_criteria(cls, v: Any) -> List[str]:
+        if v is None:
+            return []
+        if isinstance(v, str):
+            return parse_list_items(v)
+        if isinstance(v, list):
+            res = []
+            for item in v:
+                if isinstance(item, str):
+                    parsed = parse_list_items(item)
+                    if parsed:
+                        res.extend(parsed)
+                    else:
+                        cleaned = clean_plain_text(item).strip("*_~- ")
+                        if cleaned:
+                            res.append(cleaned)
+                elif item is not None:
+                    res.append(str(item).strip())
+            return res
+        return []
+
     @field_validator("title")
     @classmethod
     def validate_title_format(cls, v: str) -> str:
@@ -222,6 +249,29 @@ class RawBackendTaskDraft(BaseModel):
     testing_considerations: Optional[str] = Field(default="")
     acceptance_criteria: List[str] = Field(default_factory=list)
 
+    @field_validator("acceptance_criteria", mode="before")
+    @classmethod
+    def validate_acceptance_criteria(cls, v: Any) -> List[str]:
+        if v is None:
+            return []
+        if isinstance(v, str):
+            return parse_list_items(v)
+        if isinstance(v, list):
+            res = []
+            for item in v:
+                if isinstance(item, str):
+                    parsed = parse_list_items(item)
+                    if parsed:
+                        res.extend(parsed)
+                    else:
+                        cleaned = clean_plain_text(item).strip("*_~- ")
+                        if cleaned:
+                            res.append(cleaned)
+                elif item is not None:
+                    res.append(str(item).strip())
+            return res
+        return []
+
     @field_validator("expected_behavior", mode="before")
     @classmethod
     def default_expected_behavior(cls, v: Any, info: Any) -> str:
@@ -243,6 +293,29 @@ class RawFrontendTaskDraft(BaseModel):
     dependencies: str = Field(default="None identified.")
     testing_considerations: Optional[str] = Field(default="")
     acceptance_criteria: List[str] = Field(default_factory=list)
+
+    @field_validator("acceptance_criteria", mode="before")
+    @classmethod
+    def validate_acceptance_criteria(cls, v: Any) -> List[str]:
+        if v is None:
+            return []
+        if isinstance(v, str):
+            return parse_list_items(v)
+        if isinstance(v, list):
+            res = []
+            for item in v:
+                if isinstance(item, str):
+                    parsed = parse_list_items(item)
+                    if parsed:
+                        res.extend(parsed)
+                    else:
+                        cleaned = clean_plain_text(item).strip("*_~- ")
+                        if cleaned:
+                            res.append(cleaned)
+                elif item is not None:
+                    res.append(str(item).strip())
+            return res
+        return []
 
     @classmethod
     def from_raw(cls, data: Any) -> "RawFrontendTaskDraft":
@@ -287,6 +360,33 @@ class StoryAnalysisResult(BaseModel):
 
     frontend_task: Optional[RawFrontendTaskDraft] = None
     backend_tasks: List[RawBackendTaskDraft] = Field(default_factory=list)
+
+    @field_validator(
+        "functional_requirements",
+        "frontend_responsibilities",
+        "backend_responsibilities",
+        "api_requirements",
+        "database_requirements",
+        "validation_requirements",
+        "permission_requirements",
+        "async_processing_requirements",
+        "error_handling_requirements",
+        "testing_considerations",
+        "dependencies",
+        "ambiguities",
+        "out_of_scope",
+        "assumptions",
+        mode="before",
+    )
+    @classmethod
+    def parse_string_list(cls, v: Any) -> List[str]:
+        if v is None:
+            return []
+        if isinstance(v, str):
+            return parse_list_items(v)
+        if isinstance(v, list):
+            return [str(item).strip() for item in v if str(item).strip()]
+        return []
 
     @field_validator("frontend_task", mode="before")
     @classmethod
