@@ -6,7 +6,12 @@ import logging
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from src.api.schemas import ErrorResponse, StoryDetailsResponse, SubitemResponse
+from src.api.schemas import (
+    ErrorResponse,
+    SprintStoriesResponse,
+    StoryDetailsResponse,
+    SubitemResponse,
+)
 from src.client.zoho_client import SprintsNotFoundError
 from src.config import Settings, get_settings
 from src.services.story_service import StoryService, StoryServiceError
@@ -105,3 +110,48 @@ def get_story_details(
         status=story.status,
         subitems=subitems_resp,
     )
+
+
+@router.get(
+    "/{story_id}/sprint-stories",
+    response_model=SprintStoriesResponse,
+    responses={
+        404: {"model": ErrorResponse, "description": "Story not found"},
+        400: {"model": ErrorResponse, "description": "Invalid story request"},
+    },
+)
+def get_sprint_stories(
+    story_id: str,
+    filter_dev_owner: bool = Query(True, description="Filter stories where Developer Owner matches"),
+    developer_owner_id: Optional[str] = Query(None, description="Optional Developer Owner ID override"),
+    story_service: StoryService = Depends(get_story_service),
+) -> SprintStoriesResponse:
+    """Fetch all stories in the sprint of the given story ID, filtered by Developer Owner."""
+    clean_id = story_id.strip()
+    if not clean_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Story ID cannot be empty.",
+        )
+
+    try:
+        data = story_service.get_sprint_stories_for_story(
+            story_id=clean_id,
+            filter_dev_owner=filter_dev_owner,
+            developer_owner_id=developer_owner_id,
+        )
+        return SprintStoriesResponse(**data)
+    except SprintsNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except StoryServiceError as e:
+        err_msg = str(e)
+        if "not found" in err_msg.lower():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=err_msg) from e
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=err_msg) from e
+    except Exception as e:
+        logger.exception("Unexpected error getting sprint stories for %s: %s", clean_id, str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch sprint stories for '{clean_id}': {str(e)}",
+        ) from e
+

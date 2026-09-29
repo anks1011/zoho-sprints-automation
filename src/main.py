@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import csv
+from pathlib import Path
+import re
 import sys
-from typing import Optional
+from typing import List, Optional
 
 import typer
 from rich.console import Console
@@ -567,6 +570,292 @@ def update_tasks_command(
             console.print(f" - {err}")
 
 
+# =========================================================================
+# 5. Bulk Generation & Bulk Creation Commands
+# =========================================================================
+
+def parse_story_ids_input(story_ids: Optional[str] = None, file: Optional[str] = None) -> List[str]:
+    """Parse list of unique Story IDs from comma/space separated string or CSV/TXT file."""
+    ids: List[str] = []
+
+    if story_ids:
+        raw_parts = re.split(r"[,\s\n\t]+", story_ids.strip())
+        ids.extend([p.strip() for p in raw_parts if p.strip()])
+
+    if file:
+        f_path = Path(file)
+        if not f_path.exists():
+            console.print(f"[bold red]File not found: {file}[/bold red]")
+            raise typer.Exit(code=1)
+
+        content = f_path.read_text(encoding="utf-8").strip()
+        try:
+            reader = csv.reader(content.splitlines())
+            rows = list(reader)
+            if rows:
+                header = [h.strip().lower() for h in rows[0]]
+                target_col = None
+                for idx, col_name in enumerate(header):
+                    if col_name in ("story_id", "storyid", "story id", "item_id", "itemid", "id", "ticket_id"):
+                        target_col = idx
+                        break
+
+                if target_col is not None and len(rows) > 1:
+                    for row in rows[1:]:
+                        if len(row) > target_col and row[target_col].strip():
+                            ids.append(row[target_col].strip())
+                else:
+                    for row in rows:
+                        for cell in row:
+                            clean_cell = cell.strip()
+                            if clean_cell and clean_cell.lower() not in ("story_id", "storyid", "story id", "item_id", "id"):
+                                ids.append(clean_cell)
+        except Exception:
+            raw_parts = re.split(r"[,\s\n\t]+", content)
+            ids.extend([p.strip() for p in raw_parts if p.strip()])
+
+    seen = set()
+    deduped = []
+    for s in ids:
+        if s not in seen:
+            seen.add(s)
+            deduped.append(s)
+
+    if not deduped:
+        console.print("[bold red]No valid Story IDs provided. Use --story-ids or --file.[/bold red]")
+        raise typer.Exit(code=1)
+
+    return deduped
+
+
+@app.command("bulk-generate")
+def bulk_generate_command(
+    story_ids: Optional[str] = typer.Option(
+        None, "--story-ids", help="Comma or whitespace separated Zoho Sprints Story IDs"
+    ),
+    file: Optional[str] = typer.Option(
+        None, "--file", help="Path to CSV or text file containing Story IDs"
+    ),
+    team_id: Optional[str] = typer.Option(None, "--team-id", help="Optional Team ID override"),
+    project_id: Optional[str] = typer.Option(None, "--project-id", help="Optional Project ID override"),
+    sprint_id: Optional[str] = typer.Option(None, "--sprint-id", help="Optional Sprint ID override"),
+) -> None:
+    """Analyze multiple stories and generate FE and BE task plans in bulk."""
+    target_ids = parse_story_ids_input(story_ids=story_ids, file=file)
+
+    settings = get_settings()
+    story_service = StoryService(settings)
+    ai_analyzer = AIStoryAnalyzer(settings)
+    task_generator = TaskGenerator()
+    dup_detector = DuplicateDetector()
+    plan_store = PlanStore(settings)
+
+    console.print(f"\n[bold cyan]=== Bulk Task Plan Generation ({len(target_ids)} Stories) ===[/bold cyan]\n")
+
+    table = Table(title="Bulk Plan Generation Summary", show_header=True, header_style="bold magenta")
+    table.add_column("#", style="dim", width=4)
+    table.add_column("Story ID", style="bold cyan")
+    table.add_column("Story Title", style="white")
+    table.add_column("FE Tasks", style="green", justify="center")
+    table.add_column("BE Tasks", style="blue", justify="center")
+    table.add_column("Total Tasks", style="bold yellow", justify="center")
+    table.add_column("Status", style="bold")
+
+    successful = 0
+    failed = 0
+
+    for idx, sid in enumerate(target_ids, 1):
+        console.print(f"[dim][{idx}/{len(target_ids)}][/dim] Processing story [bold cyan]{sid}[/bold cyan]...")
+        try:
+            story = story_service.fetch_story(
+                story_id=sid, team_id=team_id, project_id=project_id, sprint_id=sprint_id
+            )
+            analysis = ai_analyzer.analyze_story(story)
+            project_users = {}
+            try:
+                project_users = story_service.get_project_users(story.team_id, story.project_id)
+            except Exception:
+                pass
+            dev_owner, qa_owner = story_service.extract_story_owners(story, project_users)
+            plan = task_generator.generate_plan(
+                story=story, analysis=analysis, dev_owner=dev_owner, qa_owner=qa_owner
+            )
+            dup_detector.analyze_plan_duplicates(plan.tasks, story.subitems)
+            plan_store.save_plan(plan)
+
+            fe_count = sum(1 for t in plan.tasks if t.task_type == "FE")
+            be_count = sum(1 for t in plan.tasks if t.task_type == "BE")
+            table.add_row(
+                str(idx),
+                sid,
+                story.name[:45] + "..." if len(story.name) > 45 else story.name,
+                str(fe_count),
+                str(be_count),
+                str(len(plan.tasks)),
+                "[bold green]✓ Generated[/bold green]",
+            )
+            successful += 1
+        except Exception as e:
+            console.print(f"[bold red]✗ Failed story {sid}:[/bold red] {str(e)}")
+            table.add_row(
+                str(idx),
+                sid,
+                "-",
+                "-",
+                "-",
+                "-",
+                f"[bold red]✗ Error: {str(e)[:30]}[/bold red]",
+            )
+            failed += 1
+
+    console.print("\n")
+    console.print(table)
+    console.print(
+        f"\n[bold green]Bulk Generation Completed:[/bold green] "
+        f"[green]{successful} successful[/green], [red]{failed} failed[/red] out of {len(target_ids)} stories."
+    )
+    if successful > 0:
+        ids_joined = ",".join(target_ids)
+        console.print(
+            "\n[bold green]To create all tasks in Zoho Sprints, run:[/bold green]\n"
+            f"  [cyan]python -m src.main bulk-create --story-ids {ids_joined}[/cyan]\n"
+            "Or dry-run first:\n"
+            f"  [cyan]python -m src.main bulk-create --story-ids {ids_joined} --dry-run[/cyan]\n"
+        )
+
+
+@app.command("bulk-create")
+def bulk_create_command(
+    story_ids: Optional[str] = typer.Option(
+        None, "--story-ids", help="Comma or whitespace separated Zoho Sprints Story IDs"
+    ),
+    file: Optional[str] = typer.Option(
+        None, "--file", help="Path to CSV or text file containing Story IDs"
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Simulate creation without writing to Zoho Sprints"
+    ),
+    confirm: bool = typer.Option(
+        False, "--confirm", help="Bypass interactive confirmation prompt (non-interactive CI use)"
+    ),
+    team_id: Optional[str] = typer.Option(None, "--team-id", help="Optional Team ID override"),
+    project_id: Optional[str] = typer.Option(None, "--project-id", help="Optional Project ID override"),
+    sprint_id: Optional[str] = typer.Option(None, "--sprint-id", help="Optional Sprint ID override"),
+) -> None:
+    """Create approved tasks across multiple stories in Zoho Sprints with confirmation safety."""
+    target_ids = parse_story_ids_input(story_ids=story_ids, file=file)
+
+    settings = get_settings()
+    plan_store = PlanStore(settings)
+    creator = TaskCreator(settings=settings)
+
+    plans = []
+    for sid in target_ids:
+        p = plan_store.load_latest_for_story(sid)
+        if not p:
+            console.print(f"[blue]No cached plan found for Story '{sid}'. Generating plan now...[/blue]")
+            story_service = StoryService(settings)
+            ai_analyzer = AIStoryAnalyzer(settings)
+            task_generator = TaskGenerator()
+            story = story_service.fetch_story(story_id=sid, team_id=team_id, project_id=project_id, sprint_id=sprint_id)
+            analysis = ai_analyzer.analyze_story(story)
+            project_users = {}
+            try:
+                project_users = story_service.get_project_users(story.team_id, story.project_id)
+            except Exception:
+                pass
+            dev_owner, qa_owner = story_service.extract_story_owners(story, project_users)
+            p = task_generator.generate_plan(story=story, analysis=analysis, dev_owner=dev_owner, qa_owner=qa_owner)
+            plan_store.save_plan(p)
+        plans.append(p)
+
+    total_tasks = sum(p.total_task_count for p in plans)
+
+    if dry_run:
+        console.print(f"\n[bold yellow]Executing DRY-RUN across {len(plans)} stories ({total_tasks} total tasks). Zero write requests.[/bold yellow]\n")
+        table = Table(title="Bulk Dry-Run Simulation Summary", show_header=True, header_style="bold cyan")
+        table.add_column("Story ID", style="bold cyan")
+        table.add_column("Story Title", style="white")
+        table.add_column("Planned Tasks", style="bold yellow", justify="center")
+        table.add_column("Dry-Run Ops", style="bold green", justify="center")
+
+        total_ops = 0
+        for p in plans:
+            ops = creator.dry_run(p)
+            total_ops += len(ops)
+            table.add_row(
+                p.story_id,
+                p.story_title[:45] + "..." if len(p.story_title) > 45 else p.story_title,
+                str(p.total_task_count),
+                str(len(ops)),
+            )
+        console.print(table)
+        console.print(f"\n[bold green]✓ Bulk dry-run complete. Total operations simulated: {total_ops}[/bold green]")
+        return
+
+    if not confirm:
+        console.print(f"\n[bold yellow]⚠️  You are about to create {total_tasks} tasks across {len(plans)} stories in Zoho Sprints.[/bold yellow]")
+        user_input = Prompt.ask("Type YES to proceed with live creation").strip()
+        if user_input != "YES":
+            console.print("[yellow]Bulk creation cancelled by user. No tasks were created.[/yellow]")
+            raise typer.Exit(code=0)
+
+    console.print(f"\n[bold cyan]Starting bulk task creation for {len(plans)} stories...[/bold cyan]\n")
+
+    results_table = Table(title="Bulk Task Creation Results", show_header=True, header_style="bold magenta")
+    results_table.add_column("Story ID", style="bold cyan")
+    results_table.add_column("Total Tasks", justify="center")
+    results_table.add_column("Created", style="green", justify="center")
+    results_table.add_column("Skipped", style="yellow", justify="center")
+    results_table.add_column("Failed", style="red", justify="center")
+    results_table.add_column("Status", style="bold")
+    results_table.add_column("Execution ID", style="dim")
+
+    total_created = 0
+    total_failed = 0
+    total_skipped = 0
+
+    for idx, p in enumerate(plans, 1):
+        console.print(f"[dim][{idx}/{len(plans)}][/dim] Creating tasks for Story [bold cyan]{p.story_id}[/bold cyan] ({p.total_task_count} tasks)...")
+        try:
+            res = creator.execute_plan(p, dry_run=False)
+            total_created += res.created_tasks
+            total_failed += res.failed_tasks
+            total_skipped += res.skipped_tasks
+
+            status_str = "[bold green]COMPLETED[/bold green]" if res.failed_tasks == 0 else "[bold yellow]PARTIAL[/bold yellow]"
+            results_table.add_row(
+                p.story_id,
+                str(res.total_tasks),
+                str(res.created_tasks),
+                str(res.skipped_tasks),
+                str(res.failed_tasks),
+                status_str,
+                res.execution_id,
+            )
+        except Exception as e:
+            console.print(f"[bold red]✗ Failed to execute plan for story {p.story_id}:[/bold red] {str(e)}")
+            results_table.add_row(
+                p.story_id,
+                str(p.total_task_count),
+                "0",
+                "0",
+                str(p.total_task_count),
+                "[bold red]FAILED[/bold red]",
+                "-",
+            )
+            total_failed += p.total_task_count
+
+    console.print("\n")
+    console.print(results_table)
+    console.print(
+        f"\n[bold green]Bulk Execution Finished:[/bold green] "
+        f"[green]{total_created} created[/green], [yellow]{total_skipped} skipped[/yellow], [red]{total_failed} failed[/red] "
+        f"across {len(plans)} stories."
+    )
+
+
 if __name__ == "__main__":
     app()
+
 

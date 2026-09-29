@@ -115,3 +115,63 @@ def test_get_story_details_empty_id() -> None:
     response = client.get("/api/v1/stories/%20")
     assert response.status_code == 400
     assert "cannot be empty" in response.json()["detail"].lower()
+
+
+def test_get_sprint_stories_endpoint() -> None:
+    """Verify /api/v1/stories/{story_id}/sprint-stories returns sprint stories filtered by dev owner."""
+    mock_service = MagicMock()
+    mock_service.get_sprint_stories_for_story.return_value = {
+        "input_story_id": "12345",
+        "team_id": "T1",
+        "project_id": "P1",
+        "sprint_id": "S1",
+        "sprint_name": "Sprint 24",
+        "current_user_dev_id": "DEV_USER_1",
+        "current_user_dev_name": "Ankit Singh",
+        "filter_applied": True,
+        "total_sprint_stories": 3,
+        "matched_stories_count": 2,
+        "stories": [
+            {
+                "story_id": "12345",
+                "name": "Story 1",
+                "item_type_id": "IT1",
+                "item_type_name": "Story",
+                "priority_id": "PR1",
+                "priority_name": "High",
+                "status": "In Progress",
+                "point": 3.0,
+                "dev_owner_id": "DEV_USER_1",
+                "dev_owner_name": "Ankit Singh",
+                "is_current_story": True,
+            },
+            {
+                "story_id": "12346",
+                "name": "Story 2",
+                "item_type_id": "IT1",
+                "item_type_name": "Story",
+                "priority_id": "PR2",
+                "priority_name": "Medium",
+                "status": "To Do",
+                "point": 5.0,
+                "dev_owner_id": "DEV_USER_1",
+                "dev_owner_name": "Ankit Singh",
+                "is_current_story": False,
+            },
+        ],
+    }
+
+    app.dependency_overrides[get_story_service] = lambda: mock_service
+    try:
+        response = client.get("/api/v1/stories/12345/sprint-stories?filter_dev_owner=true")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["input_story_id"] == "12345"
+        assert data["sprint_id"] == "S1"
+        assert data["current_user_dev_id"] == "DEV_USER_1"
+        assert len(data["stories"]) == 2
+        assert data["stories"][0]["story_id"] == "12345"
+        assert data["stories"][0]["is_current_story"] is True
+    finally:
+        app.dependency_overrides.clear()
+

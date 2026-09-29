@@ -55,6 +55,13 @@ export default function DashboardPage() {
               Inspect Story →
             </button>
           </form>
+
+          <div style={{ marginTop: "18px", display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+            <span style={{ fontSize: "13px", color: "var(--text-secondary)" }}>Need to process multiple stories simultaneously?</span>
+            <Link href="/bulk" className="btn btn-secondary" style={{ fontSize: "13px", padding: "6px 14px", border: "1px solid rgba(99, 102, 241, 0.4)" }}>
+              ⚡ Launch Bulk Action (50+ Stories) →
+            </Link>
+          </div>
         </div>
       </div>
 

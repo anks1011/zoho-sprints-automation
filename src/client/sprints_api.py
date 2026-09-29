@@ -248,6 +248,38 @@ class SprintsAPI:
         )
         return self._parse_subitems(response)
 
+    def list_sprint_items(
+        self, team_id: str, project_id: str, sprint_id: str
+    ) -> List[Dict[str, Any]]:
+        """Fetch all items belonging to a sprint."""
+        response = self.client.request(
+            "GET",
+            f"team/{team_id}/projects/{project_id}/sprints/{sprint_id}/item/",
+            params={"action": "data", "range": 200, "index": 1},
+        )
+        items_data = []
+        user_display_names = {}
+        if isinstance(response, dict):
+            user_display_names = response.get("userDisplayName") or {}
+            items_data = (
+                response.get("items")
+                or response.get("itemDetail")
+                or response.get("itemDetails")
+                or response.get("data")
+                or []
+            )
+        elif isinstance(response, list):
+            items_data = response
+
+        if not isinstance(items_data, list):
+            items_data = [items_data]
+
+        for item in items_data:
+            if isinstance(item, dict) and user_display_names and "userDisplayName" not in item:
+                item["userDisplayName"] = user_display_names
+
+        return [item for item in items_data if isinstance(item, dict)]
+
     def create_subitem(
         self,
         team_id: str,

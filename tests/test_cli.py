@@ -258,3 +258,92 @@ def test_cli_create_with_confirm_flag() -> None:
         assert "Execution completed!" in result.output
         assert "Created: 1/1" in result.output
         mock_creator_cls.return_value.execute_plan.assert_called_once_with(plan, dry_run=False)
+
+
+def test_cli_bulk_generate(tmp_path: Path) -> None:
+    csv_file = tmp_path / "stories.csv"
+    csv_file.write_text("story_id\nSTORY-1\nSTORY-2\n")
+
+    with patch("src.main.StoryService") as mock_story_cls, \
+         patch("src.main.AIStoryAnalyzer") as mock_ai_cls, \
+         patch("src.main.TaskGenerator") as mock_gen_cls, \
+         patch("src.main.DuplicateDetector") as mock_dup_cls, \
+         patch("src.main.PlanStore") as mock_store_cls:
+
+        mock_story_instance = MagicMock()
+        mock_story_instance.fetch_story.side_effect = lambda story_id, **kw: StoryItem(
+            id=story_id,
+            name=f"Title {story_id}",
+            description="Desc",
+            acceptance_criteria="AC",
+            team_id="T1",
+            project_id="P1",
+            sprint_id="S1",
+            subitems=[],
+        )
+        mock_story_instance.get_project_users.return_value = {}
+        mock_story_instance.extract_story_owners.return_value = (None, None)
+        mock_story_cls.return_value = mock_story_instance
+
+        mock_ai_cls.return_value.analyze_story.return_value = StoryAnalysisResult(summary="S", fe_tasks=[], be_tasks=[])
+        mock_gen_cls.return_value.generate_plan.side_effect = lambda story, **kw: GeneratedTaskPlan(
+            plan_id=f"plan_{story.id}",
+            story_id=story.id,
+            story_title=story.name,
+            story_summary="Sum",
+            team_id=story.team_id,
+            project_id=story.project_id,
+            sprint_id=story.sprint_id,
+            tasks=[
+                GeneratedTask(
+                    title=f"FE - Task for {story.id}",
+                    task_type="FE",
+                    objective="Obj",
+                    scope="Scope",
+                    expected_behavior="Exp",
+                )
+            ],
+        )
+
+        result = runner.invoke(app, ["bulk-generate", "--file", str(csv_file)])
+        assert result.exit_code == 0
+        assert "Bulk Task Plan Generation (2 Stories)" in result.output
+        assert "2 successful" in result.output
+        assert "STORY-1" in result.output
+        assert "STORY-2" in result.output
+
+
+def test_cli_bulk_create_dry_run() -> None:
+    with patch("src.main.PlanStore") as mock_store_cls, \
+         patch("src.main.TaskCreator") as mock_creator_cls:
+
+        from src.services.task_creator import DryRunOperation
+
+        plan = GeneratedTaskPlan(
+            plan_id="p1",
+            story_id="STORY-1",
+            story_title="Story 1",
+            story_summary="Sum",
+            team_id="T1",
+            project_id="P1",
+            sprint_id="S1",
+            tasks=[
+                GeneratedTask(
+                    title="FE - Task",
+                    task_type="FE",
+                    objective="Obj",
+                    scope="Scope",
+                    expected_behavior="Exp",
+                )
+            ],
+        )
+        mock_store_cls.return_value.load_latest_for_story.return_value = plan
+        mock_creator_cls.return_value.dry_run.return_value = [
+            DryRunOperation(task_title="FE - Task", method="POST", endpoint="/item", payload={})
+        ]
+
+        result = runner.invoke(app, ["bulk-create", "--story-ids", "STORY-1", "--dry-run"])
+        assert result.exit_code == 0
+        assert "Bulk Dry-Run Simulation Summary" in result.output
+        assert "Total operations simulated: 1" in result.output
+

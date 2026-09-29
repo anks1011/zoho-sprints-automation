@@ -3,11 +3,18 @@
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from src.api.schemas import (
+    BulkExecuteItemResponse,
+    BulkExecuteRequest,
+    BulkExecuteResponse,
+    BulkGenerateRequest,
+    BulkGenerateResponse,
+    BulkPlanItemResponse,
     CreationResultResponse,
     DryRunOperationSchema,
     DryRunResponse,
@@ -156,49 +163,32 @@ def _to_plan_response(
     )
 
 
-@router.post(
-    "/generate",
-    response_model=PlanResponse,
-    status_code=status.HTTP_200_OK,
-    responses={
-        400: {"model": ErrorResponse, "description": "Invalid generation request or empty story"},
-        404: {"model": ErrorResponse, "description": "Story not found"},
-        500: {"model": ErrorResponse, "description": "AI analysis failure"},
-    },
-)
-def generate_task_plan(
-    req: GeneratePlanRequest,
-    story_service: StoryService = Depends(get_story_service),
-    ai_analyzer: AIStoryAnalyzer = Depends(get_ai_analyzer),
-    task_generator: TaskGenerator = Depends(get_task_generator),
-    dup_detector: DuplicateDetector = Depends(get_dup_detector),
-    plan_store: PlanStore = Depends(get_plan_store),
+def generate_single_plan_helper(
+    story_id: str,
+    story_service: StoryService,
+    ai_analyzer: AIStoryAnalyzer,
+    task_generator: TaskGenerator,
+    dup_detector: DuplicateDetector,
+    plan_store: PlanStore,
+    team_id: Optional[str] = None,
+    project_id: Optional[str] = None,
+    sprint_id: Optional[str] = None,
 ) -> PlanResponse:
-    """Generate task plan for a Zoho Sprints Story ID using AI analyzer and save locally."""
-    clean_id = req.story_id.strip()
+    """Core logic to fetch story, run AI analysis, generate tasks, detect duplicates, and store plan."""
+    clean_id = story_id.strip()
+    if not clean_id:
+        raise ValueError("Story ID cannot be empty.")
 
     # 1. Fetch story details
-    try:
-        story = story_service.fetch_story(
-            story_id=clean_id,
-            team_id=req.team_id,
-            project_id=req.project_id,
-            sprint_id=req.sprint_id,
-        )
-    except StoryServiceError as e:
-        err_str = str(e)
-        if "not found" in err_str.lower():
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=err_str) from e
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=err_str) from e
-    except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)) from e
+    story = story_service.fetch_story(
+        story_id=clean_id,
+        team_id=team_id,
+        project_id=project_id,
+        sprint_id=sprint_id,
+    )
 
     # 2. AI Analysis
-    try:
-        analysis = ai_analyzer.analyze_story(story)
-    except AIAnalyzerError as e:
-        logger.error("AI analyzer error for story %s: %s", clean_id, str(e))
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"AI analysis failed: {str(e)}") from e
+    analysis = ai_analyzer.analyze_story(story)
 
     # 3. Resolve story Dev Owner and QA Owner
     project_users = {}
@@ -217,17 +207,14 @@ def generate_task_plan(
         logger.debug("Failed to extract story owners: %s", str(e))
 
     # 4. Synthesize tasks with inherited owners
-    try:
-        plan = task_generator.generate_plan(
-            story=story,
-            analysis=analysis,
-            dev_owner=dev_owner,
-            qa_owner=qa_owner,
-        )
-    except TaskGenerationError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    plan = task_generator.generate_plan(
+        story=story,
+        analysis=analysis,
+        dev_owner=dev_owner,
+        qa_owner=qa_owner,
+    )
 
-    # 4. Detect duplicates against existing subtasks
+    # 5. Detect duplicates against existing subtasks
     raw_duplicates = dup_detector.analyze_plan_duplicates(plan.tasks, story.subitems)
     dup_warnings = [
         DuplicateWarningSchema(
@@ -241,10 +228,111 @@ def generate_task_plan(
         for d in raw_duplicates
     ]
 
-    # 5. Persist plan locally
+    # 6. Persist plan locally
     plan_store.save_plan(plan)
 
     return _to_plan_response(plan, dup_warnings)
+
+
+@router.post(
+    "/generate",
+    response_model=PlanResponse,
+    status_code=status.HTTP_200_OK,
+    responses={
+        400: {"model": ErrorResponse, "description": "Invalid generation request or empty story"},
+        404: {"model": ErrorResponse, "description": "Story not found"},
+        500: {"model": ErrorResponse, "description": "AI analysis failure"},
+    },
+)
+def generate_task_plan(
+    req: GeneratePlanRequest,
+    story_service: StoryService = Depends(get_story_service),
+    ai_analyzer: AIStoryAnalyzer = Depends(get_ai_analyzer),
+    task_generator: TaskGenerator = Depends(get_task_generator),
+    dup_detector: DuplicateDetector = Depends(get_dup_detector),
+    plan_store: PlanStore = Depends(get_plan_store),
+) -> PlanResponse:
+    """Generate task plan for a single Zoho Sprints Story ID using AI analyzer and save locally."""
+    try:
+        return generate_single_plan_helper(
+            story_id=req.story_id,
+            story_service=story_service,
+            ai_analyzer=ai_analyzer,
+            task_generator=task_generator,
+            dup_detector=dup_detector,
+            plan_store=plan_store,
+            team_id=req.team_id,
+            project_id=req.project_id,
+            sprint_id=req.sprint_id,
+        )
+    except StoryServiceError as e:
+        err_str = str(e)
+        if "not found" in err_str.lower():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=err_str) from e
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=err_str) from e
+    except AIAnalyzerError as e:
+        logger.error("AI analyzer error for story %s: %s", req.story_id, str(e))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"AI analysis failed: {str(e)}") from e
+    except TaskGenerationError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except Exception as e:
+        logger.error("Unexpected error generating plan for %s: %s", req.story_id, str(e))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)) from e
+
+
+@router.post(
+    "/bulk-generate",
+    response_model=BulkGenerateResponse,
+    status_code=status.HTTP_200_OK,
+)
+def bulk_generate_plans(
+    req: BulkGenerateRequest,
+    story_service: StoryService = Depends(get_story_service),
+    ai_analyzer: AIStoryAnalyzer = Depends(get_ai_analyzer),
+    task_generator: TaskGenerator = Depends(get_task_generator),
+    dup_detector: DuplicateDetector = Depends(get_dup_detector),
+    plan_store: PlanStore = Depends(get_plan_store),
+) -> BulkGenerateResponse:
+    """Generate task plans for multiple Story IDs concurrently with per-story error isolation."""
+    def _process_single(sid: str) -> BulkPlanItemResponse:
+        try:
+            plan_resp = generate_single_plan_helper(
+                story_id=sid,
+                story_service=story_service,
+                ai_analyzer=ai_analyzer,
+                task_generator=task_generator,
+                dup_detector=dup_detector,
+                plan_store=plan_store,
+                team_id=req.team_id,
+                project_id=req.project_id,
+                sprint_id=req.sprint_id,
+            )
+            return BulkPlanItemResponse(story_id=sid, success=True, plan=plan_resp)
+        except Exception as e:
+            logger.error("Bulk generate error for story %s: %s", sid, str(e))
+            return BulkPlanItemResponse(story_id=sid, success=False, error=str(e))
+
+    try:
+        num_workers = min(4, max(1, len(req.story_ids)))
+        with ThreadPoolExecutor(max_workers=num_workers) as executor:
+            results = list(executor.map(_process_single, req.story_ids))
+
+        successful = sum(1 for r in results if r.success)
+        failed = sum(1 for r in results if not r.success)
+
+        return BulkGenerateResponse(
+            total=len(req.story_ids),
+            successful=successful,
+            failed=failed,
+            results=results,
+        )
+    except Exception as e:
+        logger.exception("Unexpected error in bulk_generate_plans: %s", str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Bulk plan generation failed: {str(e)}",
+        ) from e
+
 
 
 @router.get(
@@ -481,57 +569,32 @@ def validate_plan(
     )
 
 
-@router.post(
-    "/{plan_id}/execute",
-    response_model=CreationResultResponse,
-    responses={
-        400: {"model": ErrorResponse, "description": "Confirmation required or invalid request"},
-        404: {"model": ErrorResponse, "description": "Plan not found"},
-        500: {"model": ErrorResponse, "description": "Execution failure"},
-    },
-)
-def execute_plan(
+def execute_single_plan_helper(
     plan_id: str,
-    req: ExecutePlanRequest,
-    plan_store: PlanStore = Depends(get_plan_store),
-    task_creator: TaskCreator = Depends(get_task_creator),
+    plan_store: PlanStore,
+    task_creator: TaskCreator,
+    dry_run: bool = False,
+    confirm: bool = False,
 ) -> CreationResultResponse:
-    """Execute plan creation under parent story in Zoho Sprints with strict confirmation lock."""
-    # Strict safety check: cannot execute live without explicit confirmation
-    if not req.dry_run and not req.confirm:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Subtask creation requires explicit confirmation. Set 'confirm': true in the request body.",
-        )
+    """Core execution logic for a single plan with owner validation and state tracking."""
+    if not dry_run and not confirm:
+        raise ValueError("Subtask creation requires explicit confirmation. Set 'confirm': true.")
 
     plan = plan_store.load_plan(plan_id.strip())
     if not plan:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Plan '{plan_id}' not found.",
-        )
+        raise ValueError(f"Plan '{plan_id}' not found.")
 
     # Owner validation check before live execution
-    if not req.dry_run:
+    if not dry_run:
         val = OwnerValidator.validate_plan_owners(plan)
         if not val.valid:
             err_details = [f"[{e.code}] {e.message}" for e in val.errors]
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Plan execution blocked by owner validation: {'; '.join(err_details)}",
-            )
+            raise ValueError(f"Plan execution blocked by owner validation: {'; '.join(err_details)}")
 
-    try:
-        result = task_creator.execute_plan(plan, dry_run=req.dry_run)
-    except Exception as e:
-        logger.error("Execution failed for plan %s: %s", plan_id, str(e))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Plan execution failed: {str(e)}",
-        ) from e
+    result = task_creator.execute_plan(plan, dry_run=dry_run)
 
     # Update plan status if live execution finished
-    if not req.dry_run:
+    if not dry_run:
         if result.failed_tasks == 0:
             plan.status = "executed"
         else:
@@ -570,4 +633,134 @@ def execute_plan(
         tasks=task_states,
         is_dry_run=result.is_dry_run,
     )
+
+
+@router.post(
+    "/{plan_id}/execute",
+    response_model=CreationResultResponse,
+    responses={
+        400: {"model": ErrorResponse, "description": "Confirmation required or invalid request"},
+        404: {"model": ErrorResponse, "description": "Plan not found"},
+        500: {"model": ErrorResponse, "description": "Execution failure"},
+    },
+)
+def execute_plan(
+    plan_id: str,
+    req: ExecutePlanRequest,
+    plan_store: PlanStore = Depends(get_plan_store),
+    task_creator: TaskCreator = Depends(get_task_creator),
+) -> CreationResultResponse:
+    """Execute plan creation under parent story in Zoho Sprints with strict confirmation lock."""
+    if not req.dry_run and not req.confirm:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Subtask creation requires explicit confirmation. Set 'confirm': true in the request body.",
+        )
+
+    plan = plan_store.load_plan(plan_id.strip())
+    if not plan:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Plan '{plan_id}' not found.",
+        )
+
+    try:
+        return execute_single_plan_helper(
+            plan_id=plan_id,
+            plan_store=plan_store,
+            task_creator=task_creator,
+            dry_run=req.dry_run,
+            confirm=req.confirm,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except Exception as e:
+        logger.error("Execution failed for plan %s: %s", plan_id, str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Plan execution failed: {str(e)}",
+        ) from e
+
+
+@router.post(
+    "/bulk-execute",
+    response_model=BulkExecuteResponse,
+    status_code=status.HTTP_200_OK,
+    responses={
+        400: {"model": ErrorResponse, "description": "Confirmation required or invalid request"},
+    },
+)
+def bulk_execute_plans(
+    req: BulkExecuteRequest,
+    plan_store: PlanStore = Depends(get_plan_store),
+    task_creator: TaskCreator = Depends(get_task_creator),
+) -> BulkExecuteResponse:
+    """Execute multiple plans in bulk with confirmation safety check and error isolation."""
+    if not req.dry_run and not req.confirm:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Bulk subtask creation requires explicit confirmation. Set 'confirm': true in request body.",
+        )
+
+    def _execute_single(pid: str) -> BulkExecuteItemResponse:
+        plan = plan_store.load_plan(pid.strip())
+        story_id = plan.story_id if plan else None
+        story_title = plan.story_title if plan else None
+
+        if not plan:
+            return BulkExecuteItemResponse(
+                plan_id=pid,
+                story_id=None,
+                story_title=None,
+                success=False,
+                error=f"Plan '{pid}' not found.",
+            )
+
+        try:
+            res = execute_single_plan_helper(
+                plan_id=pid,
+                plan_store=plan_store,
+                task_creator=task_creator,
+                dry_run=req.dry_run,
+                confirm=req.confirm,
+            )
+            return BulkExecuteItemResponse(
+                plan_id=pid,
+                story_id=story_id,
+                story_title=story_title,
+                success=True,
+                result=res,
+            )
+        except Exception as e:
+            logger.error("Bulk execute error for plan %s: %s", pid, str(e))
+            return BulkExecuteItemResponse(
+                plan_id=pid,
+                story_id=story_id,
+                story_title=story_title,
+                success=False,
+                error=str(e),
+            )
+
+    try:
+        num_workers = min(4, max(1, len(req.plan_ids)))
+        with ThreadPoolExecutor(max_workers=num_workers) as executor:
+            results = list(executor.map(_execute_single, req.plan_ids))
+
+        successful = sum(1 for r in results if r.success)
+        failed = sum(1 for r in results if not r.success)
+
+        return BulkExecuteResponse(
+            total=len(req.plan_ids),
+            successful=successful,
+            failed=failed,
+            dry_run=req.dry_run,
+            results=results,
+        )
+    except Exception as e:
+        logger.exception("Unexpected error in bulk_execute_plans: %s", str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Bulk plan execution failed: {str(e)}",
+        ) from e
+
 

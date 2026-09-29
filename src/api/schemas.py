@@ -265,3 +265,123 @@ class ExecutionRecordResponse(BaseModel):
     created_at: str
     updated_at: str
 
+
+# =========================================================================
+# Bulk Operations Schemas
+# =========================================================================
+
+class BulkGenerateRequest(BaseModel):
+    """Request payload to generate plans for multiple story IDs."""
+    story_ids: List[str]
+    team_id: Optional[str] = None
+    project_id: Optional[str] = None
+    sprint_id: Optional[str] = None
+
+    @field_validator("story_ids")
+    @classmethod
+    def validate_story_ids(cls, v: List[str]) -> List[str]:
+        cleaned = [s.strip() for s in v if s and s.strip()]
+        if not cleaned:
+            raise ValueError("Story IDs list cannot be empty.")
+        seen = set()
+        deduped = []
+        for s in cleaned:
+            if s not in seen:
+                seen.add(s)
+                deduped.append(s)
+        return deduped
+
+
+class BulkPlanItemResponse(BaseModel):
+    """Result of generating a plan for an individual story in a bulk batch."""
+    story_id: str
+    success: bool
+    error: Optional[str] = None
+    plan: Optional[PlanResponse] = None
+
+
+class BulkGenerateResponse(BaseModel):
+    """Response payload for bulk plan generation."""
+    total: int
+    successful: int
+    failed: int
+    results: List[BulkPlanItemResponse]
+
+
+class BulkExecuteRequest(BaseModel):
+    """Request payload to execute multiple plans in bulk."""
+    plan_ids: List[str]
+    confirm: bool = False
+    dry_run: bool = False
+
+    @field_validator("plan_ids")
+    @classmethod
+    def validate_plan_ids(cls, v: List[str]) -> List[str]:
+        cleaned = [p.strip() for p in v if p and p.strip()]
+        if not cleaned:
+            raise ValueError("Plan IDs list cannot be empty.")
+        seen = set()
+        deduped = []
+        for p in cleaned:
+            if p not in seen:
+                seen.add(p)
+                deduped.append(p)
+        return deduped
+
+
+class BulkExecuteItemResponse(BaseModel):
+    """Result of executing an individual plan in a bulk batch."""
+    plan_id: str
+    story_id: Optional[str] = None
+    story_title: Optional[str] = None
+    success: bool
+    error: Optional[str] = None
+    result: Optional[CreationResultResponse] = None
+
+
+class BulkExecuteResponse(BaseModel):
+    """Response payload for bulk plan execution."""
+    total: int
+    successful: int
+    failed: int
+    dry_run: bool
+    results: List[BulkExecuteItemResponse]
+
+
+# =========================================================================
+# Sprint Stories Discovery Schemas
+# =========================================================================
+
+class SprintStoryItemSchema(BaseModel):
+    """Individual story summary in a sprint."""
+    story_id: str
+    name: str
+    item_type_id: Optional[str] = None
+    item_type_name: Optional[str] = None
+    priority_id: Optional[str] = None
+    priority_name: Optional[str] = None
+    status: Optional[str] = None
+    point: Optional[float] = None
+    dev_owner_id: Optional[str] = None
+    dev_owner_name: Optional[str] = None
+    qa_owner_id: Optional[str] = None
+    qa_owner_name: Optional[str] = None
+    is_current_story: bool = False
+
+
+class SprintStoriesResponse(BaseModel):
+    """Stories in the same sprint as the input story, optionally filtered by Dev Owner."""
+    input_story_id: str
+    team_id: str
+    project_id: str
+    sprint_id: str
+    sprint_name: Optional[str] = None
+    current_user_dev_id: Optional[str] = None
+    current_user_dev_name: Optional[str] = None
+    filter_applied: bool = True
+    total_sprint_stories: int
+    matched_stories_count: int
+    stories: List[SprintStoryItemSchema]
+
+
+

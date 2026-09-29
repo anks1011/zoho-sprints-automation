@@ -296,6 +296,133 @@ class StoryService:
 
         return dev_owner, qa_owner
 
+    def get_sprint_stories_for_story(
+        self,
+        story_id: str,
+        filter_dev_owner: bool = True,
+        developer_owner_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Given a Story ID, identify its sprint, fetch all stories in that sprint,
+        and filter where the current user/developer is the Developer Owner."""
+        clean_story_id = story_id.strip()
+        if not clean_story_id:
+            raise StoryServiceError("Story ID cannot be empty.")
+
+        # 1. Fetch input story to resolve context and dev owner
+        input_story = self.fetch_story(clean_story_id)
+        team_id = input_story.team_id
+        project_id = input_story.project_id
+        sprint_id = input_story.sprint_id
+
+        # 2. Get project users mapping
+        project_users = self.get_project_users(team_id, project_id)
+
+        # 3. Resolve Developer Owner
+        target_dev_id = developer_owner_id
+        target_dev_name = None
+        if not target_dev_id:
+            dev_owner, _ = self.extract_story_owners(input_story, project_users)
+            if dev_owner:
+                target_dev_id = dev_owner.user_id
+                target_dev_name = dev_owner.display_name
+
+        if target_dev_id and not target_dev_name:
+            user_info = project_users.get(target_dev_id)
+            if user_info:
+                target_dev_name = user_info.get("displayName")
+
+        # 4. Fetch sprint details if available
+        sprint_name = None
+        try:
+            sprints = self.api.list_sprints(team_id, project_id)
+            for s in sprints:
+                if str(s.id) == str(sprint_id):
+                    sprint_name = s.name
+                    break
+        except Exception:
+            pass
+
+        # 5. Fetch all items in sprint
+        raw_items = self.api.list_sprint_items(team_id, project_id, sprint_id)
+
+        # 6. Parse and filter items
+        all_stories = []
+        for it in raw_items:
+            # Skip subtasks / subitems (parentItemId is set)
+            parent_id = str(it.get("parentItemId") or it.get("parentId") or "")
+            if parent_id and parent_id != "-1":
+                continue
+
+            it_id = str(it.get("itemId") or it.get("id") or "")
+            if not it_id:
+                continue
+
+            it_name = str(it.get("itemName") or it.get("name") or it.get("summary") or "Untitled Story")
+            it_type_id = str(it.get("projItemTypeId") or it.get("projitemtypeid") or it.get("itemtypeId") or "")
+            it_type_name = str(it.get("itemtypeName") or "")
+
+            # Resolve dev owner for this item
+            raw_dev_id = str(it.get("UDF_USERPKL3") or "").strip()
+            if not raw_dev_id or raw_dev_id in ("-1", "0"):
+                owners = it.get("ownerId")
+                if owners:
+                    owner_list = owners if isinstance(owners, list) else [owners]
+                    if owner_list and str(owner_list[0]).strip() not in ("", "-1", -1):
+                        raw_dev_id = str(owner_list[0]).strip()
+
+            it_dev_name = None
+            user_display_map = it.get("userDisplayName") or {}
+            if raw_dev_id and raw_dev_id not in ("", "-1", "0"):
+                it_dev_name = user_display_map.get(raw_dev_id)
+                if not it_dev_name and raw_dev_id in project_users:
+                    it_dev_name = project_users[raw_dev_id].get("displayName")
+
+            # Resolve qa owner
+            raw_qa_id = str(it.get("UDF_USERPKL2") or "").strip()
+            it_qa_name = None
+            if raw_qa_id and raw_qa_id not in ("", "-1", "0"):
+                it_qa_name = user_display_map.get(raw_qa_id)
+                if not it_qa_name and raw_qa_id in project_users:
+                    it_qa_name = project_users[raw_qa_id].get("displayName")
+
+            # Check if matching dev owner filter
+            is_match = True
+            if filter_dev_owner and target_dev_id:
+                is_match = (str(raw_dev_id) == str(target_dev_id))
+
+            story_record = {
+                "story_id": it_id,
+                "name": it_name,
+                "item_type_id": it_type_id,
+                "item_type_name": it_type_name,
+                "priority_id": str(it.get("projPriorityId") or it.get("priorityId") or ""),
+                "priority_name": it.get("priorityName"),
+                "status": str(it.get("status") or ""),
+                "point": float(it["point"]) if it.get("point") is not None else None,
+                "dev_owner_id": raw_dev_id if raw_dev_id not in ("", "-1", "0") else None,
+                "dev_owner_name": it_dev_name,
+                "qa_owner_id": raw_qa_id if raw_qa_id not in ("", "-1", "0") else None,
+                "qa_owner_name": it_qa_name,
+                "is_current_story": (it_id == clean_story_id),
+            }
+
+            if is_match:
+                all_stories.append(story_record)
+
+        return {
+            "input_story_id": clean_story_id,
+            "team_id": str(team_id),
+            "project_id": str(project_id),
+            "sprint_id": str(sprint_id),
+            "sprint_name": sprint_name or f"Sprint {sprint_id}",
+            "current_user_dev_id": target_dev_id,
+            "current_user_dev_name": target_dev_name,
+            "filter_applied": filter_dev_owner and bool(target_dev_id),
+            "total_sprint_stories": len(raw_items),
+            "matched_stories_count": len(all_stories),
+            "stories": all_stories,
+        }
+
     def _load_cached_context(self, story_id: str) -> Optional[StoryContext]:
         if not self.cache_file.exists():
             return None

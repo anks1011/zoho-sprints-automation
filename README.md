@@ -43,6 +43,7 @@ Open your browser and navigate to:
 5. **Dry-Run Preview**: Click **"Dry-Run Preview"** to inspect simulated Zoho Sprints API payloads with zero writes.
 6. **Create in Zoho**: Click **"Create Tasks in Zoho"**, review the safety confirmation modal, check the acknowledgment, and create tasks.
 7. **Audit & Resume**: View history and resume any interrupted runs at `http://localhost:3000/executions`.
+8. **Bulk Action Studio (50+ Stories)**: Navigate to **http://localhost:3000/bulk**, paste multiple Story IDs or upload a CSV file, review AI task breakdown across all stories, preview dry-run payloads, and create tasks in bulk.
 
 ---
 
@@ -69,7 +70,17 @@ python -m src.main create --story-id 39713000007827664 --dry-run
 # 5. Live task creation (prompts for explicit 'YES' confirmation)
 python -m src.main create --story-id 39713000007827664
 
-# 6. Resume an interrupted execution
+# 6. Bulk AI plan generation for 50+ stories (comma/newline separated or CSV file)
+python -m src.main bulk-generate --story-ids "39713000007827664, 39713000007827665"
+python -m src.main bulk-generate --file stories.csv
+
+# 7. Bulk dry-run simulation across all stories (zero writes)
+python -m src.main bulk-create --file stories.csv --dry-run
+
+# 8. Live bulk subtask creation (requires 'YES' confirmation)
+python -m src.main bulk-create --file stories.csv
+
+# 9. Resume an interrupted execution
 python -m src.main resume --execution-id <EXECUTION_ID>
 ```
 
