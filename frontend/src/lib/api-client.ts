@@ -11,6 +11,7 @@ import {
   SprintStoriesResponse,
   StoryDetails,
   UpdatePlanRequest,
+  DashboardMetrics,
 } from "./types";
 
 export class ApiError extends Error {
@@ -170,5 +171,19 @@ export async function fetchSprintStories(
   }
   return apiFetch<SprintStoriesResponse>(url);
 }
+
+export async function fetchDashboardMetrics(
+  storyId?: string,
+  developerOwnerId?: string
+): Promise<DashboardMetrics> {
+  let url = "/api/v1/dashboard/metrics";
+  const params = new URLSearchParams();
+  if (storyId) params.append("story_id", storyId.trim());
+  if (developerOwnerId) params.append("developer_owner_id", developerOwnerId.trim());
+  const queryString = params.toString();
+  if (queryString) url += `?${queryString}`;
+  return apiFetch<DashboardMetrics>(url);
+}
+
 
 

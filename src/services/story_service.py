@@ -363,12 +363,16 @@ class StoryService:
 
             # Resolve dev owner for this item
             raw_dev_id = str(it.get("UDF_USERPKL3") or "").strip()
-            if not raw_dev_id or raw_dev_id in ("-1", "0"):
-                owners = it.get("ownerId")
-                if owners:
-                    owner_list = owners if isinstance(owners, list) else [owners]
-                    if owner_list and str(owner_list[0]).strip() not in ("", "-1", -1):
-                        raw_dev_id = str(owner_list[0]).strip()
+            owner_list = it.get("ownerId") or []
+            if not isinstance(owner_list, list):
+                owner_list = [owner_list]
+            owner_ids = [str(o).strip() for o in owner_list if str(o).strip() not in ("", "-1", "0")]
+
+            if (not raw_dev_id or raw_dev_id in ("-1", "0")) and owner_ids:
+                if target_dev_id and str(target_dev_id) in owner_ids:
+                    raw_dev_id = str(target_dev_id)
+                else:
+                    raw_dev_id = owner_ids[0]
 
             it_dev_name = None
             user_display_map = it.get("userDisplayName") or {}
@@ -388,7 +392,20 @@ class StoryService:
             # Check if matching dev owner filter
             is_match = True
             if filter_dev_owner and target_dev_id:
-                is_match = (str(raw_dev_id) == str(target_dev_id))
+                is_match = (str(raw_dev_id) == str(target_dev_id)) or (str(target_dev_id) in owner_ids)
+
+            # Existing tasks detection
+            sub_count_val = (
+                it.get("subItemCount")
+                or it.get("subitemCount")
+                or it.get("noOfSubItems")
+                or it.get("subTaskCount")
+                or 0
+            )
+            try:
+                existing_tasks = int(sub_count_val)
+            except (ValueError, TypeError):
+                existing_tasks = 0
 
             story_record = {
                 "story_id": it_id,
@@ -404,6 +421,8 @@ class StoryService:
                 "qa_owner_id": raw_qa_id if raw_qa_id not in ("", "-1", "0") else None,
                 "qa_owner_name": it_qa_name,
                 "is_current_story": (it_id == clean_story_id),
+                "existing_tasks_count": existing_tasks,
+                "has_existing_tasks": existing_tasks > 0,
             }
 
             if is_match:

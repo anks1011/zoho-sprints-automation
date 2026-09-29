@@ -61,6 +61,10 @@ class Settings(BaseSettings):
     )
 
     # Runtime and Logging
+    app_timezone: str = Field(
+        default="Asia/Kolkata",
+        description="Application default timezone for date calculations (e.g. Asia/Kolkata, UTC)",
+    )
     log_level: str = Field(default="INFO", description="Logging level")
     runtime_dir: Path = Field(
         default=Path(".runtime"), description="Local runtime directory for plans and tokens"

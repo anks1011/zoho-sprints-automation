@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.routes.auth import router as auth_router
+from src.api.routes.dashboard import router as dashboard_router
 from src.api.routes.executions import router as executions_router
 from src.api.routes.plans import router as plans_router
 from src.api.routes.stories import router as stories_router
@@ -44,6 +45,8 @@ app.include_router(auth_router, prefix="/api/v1")
 app.include_router(stories_router, prefix="/api/v1")
 app.include_router(plans_router, prefix="/api/v1")
 app.include_router(executions_router, prefix="/api/v1")
+app.include_router(dashboard_router, prefix="/api/v1")
+app.include_router(dashboard_router, prefix="/api")
 
 
 @app.get("/health", tags=["System"])

@@ -216,6 +216,8 @@ export interface SprintStoryItem {
   qa_owner_id?: string | null;
   qa_owner_name?: string | null;
   is_current_story?: boolean;
+  existing_tasks_count?: number | null;
+  has_existing_tasks?: boolean;
 }
 
 export interface SprintStoriesResponse {
@@ -231,5 +233,15 @@ export interface SprintStoriesResponse {
   matched_stories_count: number;
   stories: SprintStoryItem[];
 }
+
+export interface DashboardMetrics {
+  storiesProcessedToday: number;
+  tasksCreatedToday: number;
+  storiesProcessed: number;
+  tasksCreated: number;
+  storiesAssignedToMe: number;
+  failedToday: number;
+}
+
 
 

@@ -367,6 +367,8 @@ class SprintStoryItemSchema(BaseModel):
     qa_owner_id: Optional[str] = None
     qa_owner_name: Optional[str] = None
     is_current_story: bool = False
+    existing_tasks_count: Optional[int] = 0
+    has_existing_tasks: Optional[bool] = False
 
 
 class SprintStoriesResponse(BaseModel):
@@ -382,6 +384,26 @@ class SprintStoriesResponse(BaseModel):
     total_sprint_stories: int
     matched_stories_count: int
     stories: List[SprintStoryItemSchema]
+
+
+# =========================================================================
+# Dashboard Metrics Schema
+# =========================================================================
+
+class DashboardMetricsResponse(BaseModel):
+    """Real numeric KPI metrics calculated from persisted executions and sprint context."""
+    stories_processed_today: int = Field(alias="storiesProcessedToday", default=0)
+    tasks_created_today: int = Field(alias="tasksCreatedToday", default=0)
+    stories_processed: int = Field(alias="storiesProcessed", default=0)
+    tasks_created: int = Field(alias="tasksCreated", default=0)
+    stories_assigned_to_me: int = Field(alias="storiesAssignedToMe", default=0)
+    failed_today: int = Field(alias="failedToday", default=0)
+
+    model_config = {
+        "populate_by_name": True,
+        "serialize_by_alias": True,
+    }
+
 
 
 
